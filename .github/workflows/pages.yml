@@ -37,6 +37,21 @@ jobs:
             mv "$file" "${file/Index/index}"
           done
 
+      - name: Validate Godot web export
+        run: |
+          test -s site/index.html
+          test -s site/index.js
+          test -s site/index.pck
+          test -s site/index.wasm
+          for asset in index.pck index.wasm; do
+            expected_size=$(grep -o "\"${asset}\":[0-9]*" site/index.html | cut -d: -f2)
+            actual_size=$(stat -c%s "site/$asset")
+            if [ -z "$expected_size" ] || [ "$expected_size" != "$actual_size" ]; then
+              echo "Invalid $asset: expected ${expected_size:-missing}, found $actual_size bytes"
+              exit 1
+            fi
+          done
+
       - name: Upload site files
         uses: actions/upload-pages-artifact@v4
         with:
