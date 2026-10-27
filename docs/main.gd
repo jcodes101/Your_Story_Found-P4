@@ -15,6 +15,7 @@ const DarknessShader = preload("res://darkness.gdshader")
 const WORLD_SIZE := Vector2(1600, 1200)
 const BASE_LIGHT_RANGE := 430.0
 const BASE_CONE_HALF_ANGLE := 0.42
+const AMBIENT_VISIBILITY_RADIUS := 95.0
 const INTERACT_RANGE := 75.0
 const FRAGMENTS_NEEDED := 4
 const RESTORE_TIME := 3.0
@@ -39,7 +40,7 @@ func _ready() -> void:
 	_build_darkness()
 	hud = HudScript.new()
 	add_child(hud)
-	hud.show_message("Find the 4 fragments of the Holy Grail. Follow the markings on the ground.\nRead the journal near you first (F).", 9.0)
+	hud.show_message("Find the 4 fragments of the Holy Grail. Aim with the mouse and sweep your light over the ground markings. The beam fades with distance but never runs out.\nRead the journal near you first (F).", 9.0)
 
 
 # ---------------------------------------------------------------- world setup
@@ -289,7 +290,20 @@ func _update_light() -> void:
 	darkness_mat.set_shader_parameter("aim_dir", player.aim)
 	darkness_mat.set_shader_parameter("light_range", BASE_LIGHT_RANGE * lm)
 	darkness_mat.set_shader_parameter("cone_half_angle", BASE_CONE_HALF_ANGLE * clampf(lm, 0.55, 1.35))
+	darkness_mat.set_shader_parameter("ambient_radius", AMBIENT_VISIBILITY_RADIUS)
 	darkness_mat.set_shader_parameter("darkness", 0.12 if debug_bright else 0.97)
+	# Ground marks are visible in the flashlight beam; the buried fragments remain hidden.
+	for site in sites:
+		var offset: Vector2 = site.global_position - player.global_position
+		var distance := offset.length()
+		var exposure := 0.0
+		if distance <= BASE_LIGHT_RANGE * lm and distance > 0.001:
+			var angle := absf(player.aim.angle_to(offset.normalized()))
+			var half_angle := BASE_CONE_HALF_ANGLE * clampf(lm, 0.55, 1.35)
+			var angular_exposure := 1.0 - smoothstep(half_angle * 0.7, half_angle, angle)
+			var distance_exposure := 1.0 - smoothstep(BASE_LIGHT_RANGE * lm * 0.45, BASE_LIGHT_RANGE * lm, distance)
+			exposure = angular_exposure * distance_exposure
+		site.set_flashlight_exposure(exposure)
 
 
 func _update_hud() -> void:

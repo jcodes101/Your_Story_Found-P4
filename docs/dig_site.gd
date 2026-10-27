@@ -26,6 +26,8 @@ var layers_left := LAYERS
 var dig_progress := 0.0
 var brush_progress := 0.0
 var damage_timer := 0.0
+var flashlight_exposure := 0.0
+var _target_flashlight_exposure := 0.0
 
 var _dig_held := false
 var _t := 0.0
@@ -33,10 +35,17 @@ var _t := 0.0
 
 func _process(delta: float) -> void:
 	_t += delta
+	flashlight_exposure = move_toward(flashlight_exposure, _target_flashlight_exposure, delta * 3.0)
 	if not _dig_held:
 		damage_timer = 0.0
 	_dig_held = false
 	queue_redraw()
+
+
+## The beam makes this surface marking easier to distinguish from the temple floor.
+## This only changes the marking; the fragment stays hidden until it is excavated.
+func set_flashlight_exposure(amount: float) -> void:
+	_target_flashlight_exposure = clampf(amount, 0.0, 1.0)
 
 
 ## Called every frame while the player holds E near this site.
@@ -84,9 +93,14 @@ func _draw() -> void:
 			draw_circle(Vector2.ZERO, 30.0, Color(0.30, 0.20, 0.12))
 			draw_circle(Vector2(-5, -4), 22.0, Color(0.38, 0.26, 0.16))
 			# Marking on the ground (pulses so it's easier to spot with the light)
-			var m := Color(0.9, 0.75, 0.4, 0.55 + 0.3 * sin(_t * 3.0))
-			draw_line(Vector2(-10, -10), Vector2(10, 10), m, 3.0)
-			draw_line(Vector2(10, -10), Vector2(-10, 10), m, 3.0)
+			var pulse := 0.5 + 0.5 * sin(_t * 3.0)
+			var m := Color(0.9, 0.75, 0.4, 0.25 + 0.25 * pulse + 0.5 * flashlight_exposure)
+			var mark_width := 2.0 + 2.0 * flashlight_exposure
+			draw_line(Vector2(-10, -10), Vector2(10, 10), m, mark_width)
+			draw_line(Vector2(10, -10), Vector2(-10, 10), m, mark_width)
+			if flashlight_exposure > 0.05:
+				var halo := Color(1.0, 0.82, 0.42, 0.3 * flashlight_exposure)
+				draw_arc(Vector2.ZERO, 34.0, 0.0, TAU, 32, halo, 2.0 + flashlight_exposure)
 			if dig_progress > 0.0:
 				draw_arc(Vector2.ZERO, 36.0, -PI / 2.0, -PI / 2.0 + TAU * (dig_progress / DIG_TIME), 32, Color(1, 0.9, 0.4), 4.0)
 		State.NEEDS_BRUSH:
