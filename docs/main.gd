@@ -10,6 +10,7 @@ const DigSiteScript = preload("res://dig_site.gd")
 const ArtifactScript = preload("res://artifact.gd")
 const PlayerScript = preload("res://player.gd")
 const HudScript = preload("res://hud.gd")
+const FragmentCollectionScript = preload("res://fragment_collection.gd")
 const DarknessShader = preload("res://darkness.gdshader")
 
 const WORLD_SIZE := Vector2(1600, 1200)
@@ -17,7 +18,7 @@ const BASE_LIGHT_RANGE := 430.0
 const BASE_CONE_HALF_ANGLE := 0.42
 const AMBIENT_VISIBILITY_RADIUS := 95.0
 const INTERACT_RANGE := 75.0
-const FRAGMENTS_NEEDED := 4
+const FRAGMENTS_NEEDED := FragmentCollectionScript.REQUIRED_COUNT
 const RESTORE_TIME := 3.0
 
 enum GameState { PLAYING, WON, LOST }
@@ -26,21 +27,25 @@ var state: int = GameState.PLAYING
 var player: Node2D
 var hud: CanvasLayer
 var darkness_mat: ShaderMaterial
+var fragment_collection
 var sites: Array = []
 var artifacts: Array = []
 var carried = null
-var fragments_collected := 0
 var restore_progress := 0.0
 var debug_bright := false
 
 
 func _ready() -> void:
+	fragment_collection = FragmentCollectionScript.new()
+	add_child(fragment_collection)
+	fragment_collection.fragment_collected.connect(_on_fragment_collected)
+	fragment_collection.fragment_damaged.connect(_on_fragment_damaged)
 	_build_world()
 	_build_player()
 	_build_darkness()
 	hud = HudScript.new()
 	add_child(hud)
-	hud.show_message("Find the 4 fragments of the Holy Grail. Aim with the mouse and sweep your light over the ground markings. The beam fades with distance but never runs out.\nRead the journal near you first (F).", 9.0)
+	hud.show_message("WASD moves. Find four Grail pieces. Sweep floor marks with your light.", 8.0)
 
 
 # ---------------------------------------------------------------- world setup
@@ -56,31 +61,31 @@ func _build_world() -> void:
 	# Artifacts (Mechanic 3).
 	_add_artifact({
 		"item_name": "Lantern Charm",
-		"description": "A warm brass charm. Your light reaches farther and wider.",
+		"description": "Longer, wider light.",
 		"kind": ArtifactScript.Kind.BLESSED, "light_mult": 1.4,
 		"color": Color(0.95, 0.8, 0.3),
 	}, Vector2(520, 800))
 	_add_artifact({
 		"item_name": "Swift Sandals",
-		"description": "Light, well-oiled sandals. You move faster.",
+		"description": "Move faster.",
 		"kind": ArtifactScript.Kind.BLESSED, "speed_mult": 1.35,
 		"color": Color(0.9, 0.75, 0.35),
 	}, Vector2(920, 330))
 	_add_artifact({
 		"item_name": "Dim Idol",
-		"description": "A soot-black idol. It drinks light. (Marked with a warning.)",
+		"description": "Cursed: dims light.",
 		"kind": ArtifactScript.Kind.CURSED, "hinted": true, "light_mult": 0.55,
 		"color": Color(0.5, 0.35, 0.65),
 	}, Vector2(640, 480))
 	_add_artifact({
 		"item_name": "Leaden Anklet",
-		"description": "A heavy anklet. You'd move much slower. (Marked with a warning.)",
+		"description": "Cursed: slows you.",
 		"kind": ArtifactScript.Kind.CURSED, "hinted": true, "speed_mult": 0.55,
 		"color": Color(0.55, 0.4, 0.6),
 	}, Vector2(1120, 760))
 	_add_artifact({
 		"item_name": "Gilded Mask",
-		"description": "A shining ceremonial mask. It feels oddly warm to the touch.",
+		"description": "Warm mask.",
 		"kind": ArtifactScript.Kind.CURSED, "delayed": true, "light_mult": 0.4,
 		"color": Color(0.93, 0.78, 0.32),
 	}, Vector2(420, 560))
@@ -88,7 +93,7 @@ func _build_world() -> void:
 	# The explorer's journal: the story item near the start.
 	_add_artifact({
 		"item_name": "Explorer's Journal",
-		"description": "\"Every crew before us failed the same way. They dug twice without brushing and the Grail crumbled in their hands. And they carried cursed relics without knowing. Dig. Brush. Never dig again until the dirt is cleared. Some gifts here look golden and still take something from you. -- Last Expedition, Day 12\"",
+		"description": "\"Crews failed digging twice without brushing. Dig, then brush. Golden relics may curse. -- Day 12.\"",
 		"kind": ArtifactScript.Kind.NOTE,
 	}, Vector2(260, 1060))
 
@@ -99,7 +104,7 @@ func _add_site(pos: Vector2, has_fragment: bool, id: int) -> void:
 	s.has_fragment = has_fragment
 	s.fragment_id = id
 	s.site_finished.connect(_on_site_finished)
-	s.fragment_damaged.connect(_on_fragment_damaged)
+	s.fragment_damaged.connect(_on_site_fragment_damaged)
 	add_child(s)
 	sites.append(s)
 
@@ -155,11 +160,12 @@ func _process(delta: float) -> void:
 		return
 
 	var busy := _handle_actions(delta)
+	if state != GameState.PLAYING:
+		return
 	var speed_mult := 1.0
 	if carried != null:
 		speed_mult = carried.current_speed_mult()
-		if carried.tick_carry(delta):
-			hud.show_message("The %s was cursed! Something feels wrong... (F to drop it)" % carried.item_name, 6.0)
+		carried.tick_carry(delta)
 		carried.position = player.position + Vector2(0, -32)
 	if not busy:
 		player.move(delta, speed_mult)
@@ -173,7 +179,7 @@ func _handle_actions(delta: float) -> bool:
 	var g_held := Input.is_key_pressed(KEY_G)
 
 	# Mechanic 2: restoration (hold G 3s, only with all four fragments).
-	if g_held and fragments_collected >= FRAGMENTS_NEEDED:
+	if g_held and fragment_collection.has_all_intact():
 		restore_progress += delta
 		if restore_progress >= RESTORE_TIME:
 			_win()
@@ -233,7 +239,6 @@ func _interact() -> void:
 	if state != GameState.PLAYING:
 		return
 	if carried != null:
-		hud.show_message("Dropped the %s. Its effect is gone." % carried.item_name, 3.0)
 		carried.drop(player.position)
 		carried = null
 		return
@@ -241,38 +246,48 @@ func _interact() -> void:
 	if a == null:
 		return
 	if a.kind == ArtifactScript.Kind.NOTE:
-		hud.show_message(a.description, 14.0)
+		hud.show_message(a.description, 10.0)
 		return
 	a.pick_up()
 	carried = a
-	hud.show_message("Picked up the %s." % a.item_name, 3.0)
 
 
 # ------------------------------------------------------------ mechanic events
 
 func _on_site_finished(site) -> void:
 	if site.has_fragment:
-		fragments_collected += 1
-		if fragments_collected >= FRAGMENTS_NEEDED:
-			hud.show_message("All four fragments recovered! Hold G to restore the Holy Grail.", 6.0)
-		else:
-			hud.show_message("Grail fragment %d recovered, undamaged! (%d/%d)" % [site.fragment_id, fragments_collected, FRAGMENTS_NEEDED], 4.0)
+		fragment_collection.collect_fragment(site.fragment_id)
 	else:
-		hud.show_message("Nothing here but old pottery. Keep looking.", 3.0)
+		hud.show_message("Empty site.", 2.0)
 
 
-func _on_fragment_damaged(_site) -> void:
+func _on_fragment_collected(_fragment_id: int, count: int) -> void:
+	if count == FRAGMENTS_NEEDED:
+		hud.show_message("Four found. Hold G 3s.", 5.0)
+	else:
+		hud.show_message("Found: %d/4." % count, 3.0)
+
+
+func _on_site_fragment_damaged(site) -> void:
+	if site.has_fragment:
+		fragment_collection.damage_fragment(site.fragment_id)
+
+
+func _on_fragment_damaged(_fragment_id: int) -> void:
+	restore_progress = 0.0
 	state = GameState.LOST
 	hud.set_bar("", -1.0)
 	hud.set_prompt("")
-	hud.show_end("EXPEDITION FAILED", "You dug again before brushing and the fragment shattered.\nThe Grail can never be restored.\n\nPress Enter to try again.")
+	hud.show_end("EXPEDITION FAILED", "Fragment shattered. Enter to retry.")
 
 
 func _win() -> void:
+	if state != GameState.PLAYING or not fragment_collection.has_all_intact():
+		return
 	state = GameState.WON
 	hud.set_bar("", -1.0)
 	hud.set_prompt("")
-	hud.show_end("THE GRAIL IS RESTORED", "All four fragments joined, undamaged.\nThe Last Expedition is a success!\n\nPress Enter to play again.")
+	hud.show_end("GRAIL RESTORED", "The expedition succeeds. Press Enter to replay.")
 
 
 # --------------------------------------------------------- light + HUD update
@@ -308,34 +323,32 @@ func _update_light() -> void:
 
 func _update_hud() -> void:
 	var carry_text := "nothing"
-	var fx := ""
 	if carried != null:
 		carry_text = carried.item_name
-		fx = "  (light x%.2f, speed x%.2f)" % [carried.current_light_mult(), carried.current_speed_mult()]
-	hud.set_status("Fragments: %d / %d\nCarrying: %s%s" % [fragments_collected, FRAGMENTS_NEEDED, carry_text, fx])
+	hud.set_status("Fragments: %d/%d\nCarrying: %s" % [fragment_collection.collected_count(), FRAGMENTS_NEEDED, carry_text])
 
 	var lines: Array = []
-	if fragments_collected >= FRAGMENTS_NEEDED:
-		lines.append("Hold G to restore the Holy Grail")
+	if fragment_collection.has_all_intact():
+		lines.append("Hold G 3s to restore.")
 	var site = _nearest_site()
 	if site != null:
 		if site.state == DigSiteScript.State.BURIED:
-			lines.append("Hold E to dig (you can't move while digging)")
+			lines.append("E: Dig 3s (stay still)")
 		elif site.state == DigSiteScript.State.NEEDS_BRUSH:
-			lines.append("Brush it! Hold R. Digging again now would damage a fragment!")
+			lines.append("R: Brush. E breaks it!")
 	var a = _nearest_artifact()
 	if a != null:
 		if a.kind == ArtifactScript.Kind.NOTE:
-			lines.append("[F] Read the %s" % a.item_name)
+			lines.append("F: Read %s" % a.item_name)
 		elif carried == null:
 			lines.append("%s: %s  [F] pick up" % [a.item_name, a.description])
 	if carried != null:
-		lines.append("[F] Drop the %s" % carried.item_name)
+		lines.append("F: Drop %s" % carried.item_name)
 	hud.set_prompt("\n".join(lines))
 
 	# Progress bar
 	if restore_progress > 0.0:
-		hud.set_bar("Restoring the Holy Grail...", restore_progress / RESTORE_TIME, Color(0.6, 0.9, 1.0))
+		hud.set_bar("Restoring...", restore_progress / RESTORE_TIME, Color(0.6, 0.9, 1.0))
 	elif site != null and site.state == DigSiteScript.State.BURIED and site.dig_progress > 0.0:
 		hud.set_bar("Digging...", site.dig_progress / DigSiteScript.DIG_TIME)
 	elif site != null and site.state == DigSiteScript.State.NEEDS_BRUSH and site.brush_progress > 0.0:
