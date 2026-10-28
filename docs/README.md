@@ -1,6 +1,6 @@
 # The Last Expedition (Playtest Build)
 
-Godot 4.3+ project, **Compatibility** renderer. Open `project.godot` in Godot and press F5.
+Godot 4.3+ project, **Compatibility** renderer. Open `project.godot` in Godot and press F5. The game opens at the main menu; begin the expedition, review the briefing, then choose **Enter Temple**.
 
 ## Controls
 | Key | Action |
@@ -11,8 +11,9 @@ Godot 4.3+ project, **Compatibility** renderer. Open `project.godot` in Godot an
 | Hold **R** (1.5s) | Brush |
 | **F** | Pick up / drop an object, read the journal |
 | Hold **G** (3s) | Restore the Holy Grail (needs all 4 fragments) |
+| **Escape** | Pause / resume or return from a sub-screen |
+| **Enter / Space** | Activate the focused menu button |
 | **F1** | Debug: toggle bright mode |
-| **Enter** | Restart after win/lose |
 
 ## Goal
 Recover 4 buried Grail fragments without damaging any, then hold G to restore it. Sweep the flashlight over the temple floor to reveal pulsing X marks that brighten in the beam; the fragments remain hidden until excavated. Nearby surroundings stay faintly visible, and the beam fades with distance. The flashlight has no battery limit. Start by reading the journal next to you (F).
@@ -21,6 +22,9 @@ Recover 4 buried Grail fragments without damaging any, then hold G to restore it
 | File | What it is | Owner (per team doc) |
 |---|---|---|
 | `main.gd` | Builds the level, connects mechanics, win/lose | everyone |
+| `app.gd` + `main.tscn` | Main menu, briefing, pause, endings, scene lifecycle | shared |
+| `gameplay.tscn` | Gameplay scene instantiated after the briefing | shared |
+| `grail_emblem.gd`, `direction_cue.gd` | Procedural menu/end art and first-site pointer | shared |
 | `darkness.gdshader` + light code in `main.gd` (`_update_light`) | Mechanic 1: Flashlight | Hali |
 | `fragment_collection.gd` + integration in `main.gd` | Mechanic 2: Fragment collection + restoration | Jadin |
 | `dig_site.gd` | Mechanic 4: Digging and brushing; emits completion and damage events | Naomi |
@@ -33,8 +37,8 @@ Recover 4 buried Grail fragments without damaging any, then hold G to restore it
 - **Objects:** carry one at a time; inspect by standing near (name + description on HUD); blessed ones boost light/speed; most cursed ones have a red outline + "!"; the **Gilded Mask** is unmarked and its curse only starts after 15s carried; dropping removes the effect.
 - **Digging/brushing:** E 3s per layer (2 layers per fragment site), then you must brush (R). Digging again while brushing is needed (0.4s grace) damages the fragment. Brushing when not needed just wastes time. Decoy sites hold only pottery.
 
-## Not built yet (ideas for this week)
+## Remaining ideas
 - Real art/audio, collision walls, a bigger or randomized map
 - Expedition timer (the pitch says "before the expedition ends in failure")
-- More artifacts + inventory, a proper tutorial, polish on lose/win screens
+- More artifacts + inventory
 - Jeremiah's water-spring repair idea (currently a damaged fragment = instant loss, per Jadin's decision)

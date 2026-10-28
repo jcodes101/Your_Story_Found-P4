@@ -4,7 +4,9 @@ extends Node2D
 ##
 ## Controls: WASD/arrows move | mouse aims flashlight | hold E dig | hold R brush
 ##           F pick up / drop / read | hold G restore the Grail (needs 4 fragments)
-##           F1 toggle bright mode (debug) | Enter restart after win/lose
+##           F1 debug brightness | Escape pause | Enter/Space activate menu buttons
+
+signal game_ended(victory: bool)
 
 const DigSiteScript = preload("res://dig_site.gd")
 const ArtifactScript = preload("res://artifact.gd")
@@ -33,6 +35,8 @@ var artifacts: Array = []
 var carried = null
 var restore_progress := 0.0
 var debug_bright := false
+var controls_blocked_until_release := true
+var tutorial_guide_active := true
 
 
 func _ready() -> void:
@@ -45,7 +49,18 @@ func _ready() -> void:
 	_build_darkness()
 	hud = HudScript.new()
 	add_child(hud)
-	hud.show_message("WASD moves. Find four Grail pieces. Sweep floor marks with your light.", 8.0)
+	hud.show_message("WASD MOVE • MOUSE AIM LIGHT", 3.5)
+
+
+func set_controls_blocked(blocked: bool) -> void:
+	controls_blocked_until_release = blocked
+
+
+func _gameplay_controls_held() -> bool:
+	for key in [KEY_W, KEY_A, KEY_S, KEY_D, KEY_UP, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_E, KEY_R, KEY_G, KEY_F, KEY_F1]:
+		if Input.is_key_pressed(key):
+			return true
+	return false
 
 
 # ---------------------------------------------------------------- world setup
@@ -158,6 +173,10 @@ func _process(delta: float) -> void:
 	_update_light()
 	if state != GameState.PLAYING:
 		return
+	if controls_blocked_until_release:
+		if _gameplay_controls_held():
+			return
+		controls_blocked_until_release = false
 
 	var busy := _handle_actions(delta)
 	if state != GameState.PLAYING:
@@ -229,9 +248,6 @@ func _unhandled_input(event: InputEvent) -> void:
 			_interact()
 		KEY_F1:
 			debug_bright = not debug_bright
-		KEY_ENTER, KEY_KP_ENTER:
-			if state != GameState.PLAYING:
-				get_tree().reload_current_scene()
 
 
 ## Mechanic 3: pick up / drop one object at a time; notes are just read.
@@ -241,6 +257,7 @@ func _interact() -> void:
 	if carried != null:
 		carried.drop(player.position)
 		carried = null
+		hud.show_message("EFFECT ENDED", 1.8)
 		return
 	var a = _nearest_artifact()
 	if a == null:
@@ -258,14 +275,13 @@ func _on_site_finished(site) -> void:
 	if site.has_fragment:
 		fragment_collection.collect_fragment(site.fragment_id)
 	else:
-		hud.show_message("Empty site.", 2.0)
+		hud.show_message("EMPTY", 1.5)
 
 
 func _on_fragment_collected(_fragment_id: int, count: int) -> void:
-	if count == FRAGMENTS_NEEDED:
-		hud.show_message("Four found. Hold G 3s.", 5.0)
-	else:
-		hud.show_message("Found: %d/4." % count, 3.0)
+	hud.set_fragment_count(count)
+	tutorial_guide_active = false
+	hud.set_guide_direction(Vector2.ZERO)
 
 
 func _on_site_fragment_damaged(site) -> void:
@@ -278,7 +294,7 @@ func _on_fragment_damaged(_fragment_id: int) -> void:
 	state = GameState.LOST
 	hud.set_bar("", -1.0)
 	hud.set_prompt("")
-	hud.show_end("EXPEDITION FAILED", "Fragment shattered. Enter to retry.")
+	game_ended.emit(false)
 
 
 func _win() -> void:
@@ -287,13 +303,27 @@ func _win() -> void:
 	state = GameState.WON
 	hud.set_bar("", -1.0)
 	hud.set_prompt("")
-	hud.show_end("GRAIL RESTORED", "The expedition succeeds. Press Enter to replay.")
+	game_ended.emit(true)
 
 
 # --------------------------------------------------------- light + HUD update
 
 func _current_light_mult() -> float:
 	return carried.current_light_mult() if carried != null else 1.0
+
+
+func _carried_effect_label() -> String:
+	if carried == null:
+		return ""
+	if not carried.is_effect_active():
+		return ""
+	if carried.kind == ArtifactScript.Kind.CURSED:
+		return "CURSE"
+	if carried.current_light_mult() != 1.0:
+		return "LIGHT"
+	if carried.current_speed_mult() != 1.0:
+		return "SPEED"
+	return ""
 
 
 func _update_light() -> void:
@@ -322,36 +352,60 @@ func _update_light() -> void:
 
 
 func _update_hud() -> void:
-	var carry_text := "nothing"
-	if carried != null:
-		carry_text = carried.item_name
-	hud.set_status("Fragments: %d/%d\nCarrying: %s" % [fragment_collection.collected_count(), FRAGMENTS_NEEDED, carry_text])
-
-	var lines: Array = []
+	hud.set_fragment_count(fragment_collection.collected_count())
+	hud.set_carry_status(carried.item_name if carried != null else "", _carried_effect_label())
+	var prompt := ""
+	var dangerous := false
 	if fragment_collection.has_all_intact():
-		lines.append("Hold G 3s to restore.")
-	var site = _nearest_site()
-	if site != null:
-		if site.state == DigSiteScript.State.BURIED:
-			lines.append("E: Dig 3s (stay still)")
-		elif site.state == DigSiteScript.State.NEEDS_BRUSH:
-			lines.append("R: Brush. E breaks it!")
-	var a = _nearest_artifact()
-	if a != null:
-		if a.kind == ArtifactScript.Kind.NOTE:
-			lines.append("F: Read %s" % a.item_name)
-		elif carried == null:
-			lines.append("%s: %s  [F] pick up" % [a.item_name, a.description])
-	if carried != null:
-		lines.append("F: Drop %s" % carried.item_name)
-	hud.set_prompt("\n".join(lines))
+		prompt = "HOLD G 3S • RESTORE"
+	else:
+		var site = _nearest_site()
+		if site != null and site.state == DigSiteScript.State.BURIED:
+			prompt = "HOLD E • DIG 3S"
+		elif site != null and site.state == DigSiteScript.State.NEEDS_BRUSH:
+			prompt = "HOLD R • BRUSH"
+			if site.has_fragment:
+				prompt += "\nE SHATTERS"
+				dangerous = true
+		elif carried != null:
+			prompt = "F • DROP"
+		else:
+			var a = _nearest_artifact()
+			if a != null and a.kind == ArtifactScript.Kind.NOTE:
+				prompt = "F • READ"
+			elif a != null:
+				prompt = "%s\n%s\nF • TAKE" % [a.item_name, a.description]
+	hud.set_prompt(prompt, dangerous)
 
-	# Progress bar
+	if tutorial_guide_active:
+		var target = _nearest_fragment_site()
+		if fragment_collection.collected_count() > 0 or target == null or target.position.distance_to(player.position) <= INTERACT_RANGE * 1.65:
+			tutorial_guide_active = false
+			hud.set_guide_direction(Vector2.ZERO)
+		else:
+			hud.set_guide_direction(target.position - player.position)
+	else:
+		hud.set_guide_direction(Vector2.ZERO)
+
+	var site = _nearest_site()
 	if restore_progress > 0.0:
-		hud.set_bar("Restoring...", restore_progress / RESTORE_TIME, Color(0.6, 0.9, 1.0))
+		hud.set_bar("RESTORE", restore_progress / RESTORE_TIME, Color(0.6, 0.9, 1.0))
 	elif site != null and site.state == DigSiteScript.State.BURIED and site.dig_progress > 0.0:
-		hud.set_bar("Digging...", site.dig_progress / DigSiteScript.DIG_TIME)
+		hud.set_bar("DIG", site.dig_progress / DigSiteScript.DIG_TIME)
 	elif site != null and site.state == DigSiteScript.State.NEEDS_BRUSH and site.brush_progress > 0.0:
-		hud.set_bar("Brushing...", site.brush_progress / DigSiteScript.BRUSH_TIME, Color(0.85, 0.85, 0.7))
+		hud.set_bar("BRUSH", site.brush_progress / DigSiteScript.BRUSH_TIME, Color(0.85, 0.85, 0.7))
 	else:
 		hud.set_bar("", -1.0)
+
+
+func _nearest_fragment_site():
+	var best = null
+	var best_distance := INF
+	for site in sites:
+		if not site.has_fragment or site.state == DigSiteScript.State.DONE or site.state == DigSiteScript.State.DAMAGED:
+			continue
+		var distance: float = site.position.distance_to(player.position)
+		if distance < best_distance:
+			best_distance = distance
+			best = site
+	return best
