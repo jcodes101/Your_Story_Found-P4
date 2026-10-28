@@ -28,10 +28,20 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Prepare site files
+      - name: Set up Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.2
+          use-dotnet: false
+          include-templates: true
+
+      - name: Import game resources
+        run: godot --headless --path game --editor --import
+
+      - name: Export game for the web
         run: |
           mkdir site
-          cp -R game/. site/
+          godot --headless --path game --export-release Web ../site/index.html
           for file in site/Index.*; do
             [ -e "$file" ] || continue
             mv "$file" "${file/Index/index}"
