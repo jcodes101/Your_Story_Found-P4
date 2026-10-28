@@ -75,26 +75,26 @@ func _build_world() -> void:
 
 	# Artifacts (Mechanic 3).
 	_add_artifact({
-		"item_name": "Lantern Charm",
-		"description": "Longer, wider light.",
+		"item_name": "Brass Charm",
+		"description": "A brass charm engraved with a sunburst. Its surface is warm.",
 		"kind": ArtifactScript.Kind.BLESSED, "light_mult": 1.4,
 		"color": Color(0.95, 0.8, 0.3),
 	}, Vector2(520, 800))
 	_add_artifact({
-		"item_name": "Swift Sandals",
-		"description": "Move faster.",
+		"item_name": "Gold-thread Sandals",
+		"description": "Leather sandals with gold thread, worn smooth at the heels.",
 		"kind": ArtifactScript.Kind.BLESSED, "speed_mult": 1.35,
 		"color": Color(0.9, 0.75, 0.35),
 	}, Vector2(920, 330))
 	_add_artifact({
-		"item_name": "Dim Idol",
-		"description": "Cursed: dims light.",
+		"item_name": "Obsidian Idol",
+		"description": "A soot-black idol, cold enough to fog the air around it.",
 		"kind": ArtifactScript.Kind.CURSED, "hinted": true, "light_mult": 0.55,
 		"color": Color(0.5, 0.35, 0.65),
 	}, Vector2(640, 480))
 	_add_artifact({
-		"item_name": "Leaden Anklet",
-		"description": "Cursed: slows you.",
+		"item_name": "Etched Anklet",
+		"description": "A heavy lead anklet etched with tiny footprints.",
 		"kind": ArtifactScript.Kind.CURSED, "hinted": true, "speed_mult": 0.55,
 		"color": Color(0.55, 0.4, 0.6),
 	}, Vector2(1120, 760))
@@ -312,20 +312,6 @@ func _current_light_mult() -> float:
 	return carried.current_light_mult() if carried != null else 1.0
 
 
-func _carried_effect_label() -> String:
-	if carried == null:
-		return ""
-	if not carried.is_effect_active():
-		return ""
-	if carried.kind == ArtifactScript.Kind.CURSED:
-		return "CURSE"
-	if carried.current_light_mult() != 1.0:
-		return "LIGHT"
-	if carried.current_speed_mult() != 1.0:
-		return "SPEED"
-	return ""
-
-
 func _update_light() -> void:
 	var to_mouse := get_global_mouse_position() - player.global_position
 	if to_mouse.length() > 4.0:
@@ -353,7 +339,7 @@ func _update_light() -> void:
 
 func _update_hud() -> void:
 	hud.set_fragment_count(fragment_collection.collected_count())
-	hud.set_carry_status(carried.item_name if carried != null else "", _carried_effect_label())
+	hud.set_carry_status(carried.item_name if carried != null else "")
 	var prompt := ""
 	var dangerous := false
 	if fragment_collection.has_all_intact():

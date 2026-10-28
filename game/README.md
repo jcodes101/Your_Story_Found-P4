@@ -32,9 +32,9 @@ Recover 4 buried Grail fragments without damaging any, then hold G to restore it
 | `player.gd`, `hud.gd` | Movement, on-screen text | shared |
 
 ## Rules implemented (from the team's Part 1 decisions)
-- **Flashlight:** follows mouse, cone that fades with distance, small always-visible circle around the player, no battery. Surface markings brighten and gain a soft halo in the beam; buried fragments stay hidden until excavation. The Lantern Charm extends the beam and widens its cone.
+- **Flashlight:** follows mouse, cone that fades with distance, small always-visible circle around the player, no battery. Surface markings brighten and gain a soft halo in the beam; buried fragments stay hidden until excavation. Some relics change the beam, but their effects are not labeled in the player-facing inspection text.
 - **Fragments:** IDs 1–4 are tracked once each; any damaged fragment = lose; hold G for 3s with all 4 intact = win.
-- **Objects:** carry one at a time; inspect by standing near (name + description on HUD); blessed ones boost light/speed; most cursed ones have a red outline + "!"; the **Gilded Mask** is unmarked and its curse only starts after 15s carried; dropping removes the effect.
+- **Objects:** carry one at a time; inspect by standing near (name + atmospheric description on HUD), while the actual effect is left for the player to discover. Most risky objects have a red outline + "!"; the **Gilded Mask** is unmarked and its hidden effect only starts after 15s carried; dropping removes the effect.
 - **Digging/brushing:** E 3s per layer (2 layers per fragment site), then you must brush (R). Digging again while brushing is needed (0.4s grace) damages the fragment. Brushing when not needed just wastes time. Decoy sites hold only pottery.
 
 ## Remaining ideas

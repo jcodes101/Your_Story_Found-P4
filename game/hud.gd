@@ -41,7 +41,7 @@ func _ready() -> void:
 	_layout_ui()
 	get_viewport().size_changed.connect(_layout_ui)
 	set_fragment_count(0)
-	set_carry_status("", "")
+	set_carry_status("")
 
 
 func _build_objective() -> void:
@@ -196,14 +196,14 @@ func set_fragment_count(count: int) -> void:
 	_fragment_count = safe_count
 
 
-func set_carry_status(item_name: String, effect: String) -> void:
+func set_carry_status(item_name: String) -> void:
 	if item_name.is_empty():
 		carry_panel.visible = false
 		carry_label.text = ""
 		return
 	carry_panel.visible = true
-	var next_text := "%s\n%s" % [item_name, effect]
-	var next_color := Color(1.0, 0.67, 0.53) if effect.contains("CURSE") else PALE_GOLD
+	var next_text := item_name
+	var next_color := PALE_GOLD
 	if carry_label.text != next_text:
 		carry_label.text = next_text
 	if carry_label.get_theme_color("font_color") != next_color:
