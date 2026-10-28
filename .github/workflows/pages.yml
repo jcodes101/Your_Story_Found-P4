@@ -31,7 +31,7 @@ jobs:
       - name: Prepare site files
         run: |
           mkdir site
-          cp -R docs/. site/
+          cp -R game/. site/
           for file in site/Index.*; do
             [ -e "$file" ] || continue
             mv "$file" "${file/Index/index}"
