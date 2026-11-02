@@ -10,8 +10,12 @@ const RESTORE_TIME := 3.0
 const MOVE_SPEED := 4.3
 
 enum State { EXPLORING, RESTORING, WON, LOST }
+enum StoryStage { INTRODUCTION, DISCOVERY, SUSPICION, TWIST, RESTORATION }
 
 var state: int = State.EXPLORING
+var story_stage: int = StoryStage.INTRODUCTION
+var story_clues_seen := {"sanctuary": false, "curse": false, "division": false}
+var story_clues: Array[Dictionary] = []
 var ending_text := ""
 var player: CharacterBody3D
 var camera: Camera3D
@@ -38,10 +42,8 @@ var _mouse_captured := false
 var _ended := false
 var _scare_triggered := false
 var _scare_active := false
-var _inner_mural: Node3D
 var _revealed_mural: Node3D
 var _mural_light: OmniLight3D
-var _mural_caption_shown := false
 var _ghost: Node3D
 var _scare_audio: AudioStreamPlayer
 var _tool: Node3D
@@ -61,6 +63,9 @@ var _move_forward := false
 var _move_back := false
 var _move_left := false
 var _move_right := false
+var _fragment_popup: Control
+var _fragment_popup_timer := 0.0
+var _fragment_popup_open := false
 
 
 func _ready() -> void:
@@ -100,46 +105,105 @@ func _build_environment() -> void:
 
 
 func _build_architecture() -> void:
-	_add_box("Temple floor", Vector3(0, -0.42, 0), Vector3(22, 0.8, 46), Color(0.25, 0.23, 0.20))
-	_add_box("Left boundary", Vector3(-11.2, 2.1, 0), Vector3(0.8, 4.2, 46), Color(0.35, 0.31, 0.26))
-	_add_box("Right boundary", Vector3(11.2, 2.1, 0), Vector3(0.8, 4.2, 46), Color(0.35, 0.31, 0.26))
-	_add_box("Entrance wall", Vector3(0, 2.1, 22.7), Vector3(22, 4.2, 0.8), Color(0.35, 0.31, 0.26))
-	_add_box("Outer lintel", Vector3(0, 2.1, -22.7), Vector3(22, 4.2, 0.8), Color(0.35, 0.31, 0.26))
-	_add_box("Ruins ceiling ribs", Vector3(0, 4.0, -3.0), Vector3(21.5, 0.55, 0.7), Color(0.30, 0.27, 0.23), false)
-	for z in [-12.0, -2.0, 8.5]:
-		for x in [-8.8, 8.8]:
-			_add_box("Broken arch pier", Vector3(x, 1.9, z), Vector3(1.5, 3.8, 1.5), Color(0.40, 0.35, 0.29))
-		_add_box("Arch lintel", Vector3(0, 3.55, z), Vector3(17.6, 0.7, 1.5), Color(0.42, 0.36, 0.29), false)
-	for x in [-7.8, 7.8]:
-		_add_box("Restoration chamber pillar", Vector3(x, 1.7, 15.5), Vector3(1.3, 3.4, 1.3), Color(0.43, 0.36, 0.28))
-	for z in [-20.0, -15.5, -4.0, 2.0, 11.0, 19.0]:
-		_add_box("Floor seam", Vector3(0, 0.012, z), Vector3(20.0, 0.025, 0.08), Color(0.17, 0.16, 0.15), false)
-	_add_point_light(Vector3(0, 3.0, -18.0), Color(1.0, 0.70, 0.36), 1.6, 7.0)
-	_add_point_light(Vector3(0, 3.2, -4.0), Color(0.74, 0.56, 0.34), 1.2, 6.0)
-	_add_point_light(Vector3(0, 3.2, 15.0), Color(0.50, 0.70, 0.88), 1.0, 7.0)
+	# Five compact rooms, linked by narrow dog-leg passages that hide the next discovery.
+	_room(Vector2(0, -18), Vector2(14, 12), "Camp", {"north": 0.0, "east": 0.0})
+	_room(Vector2(14, -6), Vector2(12, 12), "Sanctuary", {"north": -5.0, "south": 0.0})
+	_room(Vector2(0, 7), Vector2(12, 12), "Shattered hall", {"east": 0.0, "west": 4.0})
+	_room(Vector2(-14, 18), Vector2(12, 12), "Dividing chamber", {"east": 0.0, "south": 0.0})
+	_room(Vector2(-14, 33), Vector2(14, 12), "Restoration altar", {"north": 0.0})
+	_hall_z(9.0, -18.0, -12.0)
+	_hall_z(14.0, 0.0, 4.0)
+	# The sanctuary exit turns into the shattered hall at its actual east doorway (z=7).
+	_hall_x(6.0, 14.0, 7.0)
+	_hall_x(-7.0, -6.0, 11.0)
+	_hall_z(-7.0, 11.0, 18.0)
+	_hall_x(-7.0, -8.0, 18.0)
+	_hall_z(-14.0, 24.0, 27.0)
+	_add_point_light(Vector3(0, 3, -18), Color(1.0, 0.70, 0.36), 1.0, 7.0)
+	_add_point_light(Vector3(14, 3, -6), Color(0.88, 0.67, 0.36), 1.0, 7.0)
+	_add_point_light(Vector3(0, 3, 7), Color(0.52, 0.68, 0.80), 0.6, 6.0)
+	_add_point_light(Vector3(-14, 3, 18), Color(0.48, 0.66, 0.83), 0.55, 6.0)
+	_add_point_light(Vector3(-14, 3, 33), Color(0.45, 0.68, 0.86), 0.35, 6.0)
+
+
+func _room(center: Vector2, size: Vector2, label: String, openings: Dictionary) -> void:
+	var x0 := center.x - size.x / 2.0
+	var x1 := center.x + size.x / 2.0
+	var z0 := center.y - size.y / 2.0
+	var z1 := center.y + size.y / 2.0
+	var c := Color(0.36, 0.32, 0.27)
+	_add_box(label + " floor", Vector3(center.x, -0.4, center.y), Vector3(size.x, 0.8, size.y), Color(0.25, 0.23, 0.20))
+	_add_box(label + " ceiling", Vector3(center.x, 4, center.y), Vector3(size.x, 0.5, size.y), Color(0.19, 0.18, 0.17), false)
+	# Every side is built from two blocks around a 3.6m real doorway.
+	for side in ["north", "south", "east", "west"]:
+		var open := openings.has(side)
+		var opening_center := center.y + float(openings.get(side, 0.0)) if side == "east" or side == "west" else center.x + float(openings.get(side, 0.0))
+		if side == "north" or side == "south":
+			var z := z0 if side == "north" else z1
+			if open:
+				var left_len := maxf(0.1, opening_center - 1.8 - x0)
+				var right_len := maxf(0.1, x1 - opening_center - 1.8)
+				_add_box(label + " " + side + " wall", Vector3(x0 + left_len / 2.0, 2, z), Vector3(left_len, 4, 0.7), c)
+				_add_box(label + " " + side + " wall", Vector3(opening_center + 1.8 + right_len / 2.0, 2, z), Vector3(right_len, 4, 0.7), c)
+				_add_box(label + " portal lintel", Vector3(opening_center, 3.6, z), Vector3(3.6, 0.8, 0.7), c, false)
+			else:
+				_add_box(label + " " + side + " wall", Vector3(center.x, 2, z), Vector3(size.x, 4, 0.7), c)
+		else:
+			var x := x0 if side == "west" else x1
+			if open:
+				var near_len := maxf(0.1, opening_center - 1.8 - z0)
+				var far_len := maxf(0.1, z1 - opening_center - 1.8)
+				_add_box(label + " " + side + " wall", Vector3(x, 2, z0 + near_len / 2.0), Vector3(0.7, 4, near_len), c)
+				_add_box(label + " " + side + " wall", Vector3(x, 2, opening_center + 1.8 + far_len / 2.0), Vector3(0.7, 4, far_len), c)
+				_add_box(label + " portal lintel", Vector3(x, 3.6, opening_center), Vector3(0.7, 0.8, 3.6), c, false)
+			else:
+				_add_box(label + " " + side + " wall", Vector3(x, 2, center.y), Vector3(0.7, 4, size.y), c)
+
+
+func _hall_z(x: float, a: float, b: float) -> void:
+	var mid := (a + b) / 2.0
+	var len := absf(b - a)
+	# Generous floor overlap prevents hairline gaps at room thresholds from catching the player.
+	_add_box("Dogleg passage floor", Vector3(x, -0.4, mid), Vector3(3.6, 0.8, len + 2.4), Color(0.23, 0.22, 0.20))
+	if len > 3.5:
+		for side in [-1.0, 1.0]:
+			_add_box("Dogleg passage wall", Vector3(x + side * 2.05, 2, mid), Vector3(0.55, 4, len - 3.0), Color(0.33, 0.30, 0.26))
+
+
+func _hall_x(a: float, b: float, z: float) -> void:
+	var mid := (a + b) / 2.0
+	var len := absf(b - a)
+	_add_box("Turn passage floor", Vector3(mid, -0.4, z), Vector3(len + 2.4, 0.8, 3.6), Color(0.23, 0.22, 0.20))
+	if len > 3.5:
+		for side in [-1.0, 1.0]:
+			_add_box("Turn passage wall", Vector3(mid, 2, z + side * 2.05), Vector3(len - 3.0, 4, 0.55), Color(0.33, 0.30, 0.26))
 
 
 func _build_story_clues() -> void:
-	# Corridor panels show the vessel in ceremony, then marked at four quarters.
-	for i in 3:
-		var z := -7.5 + float(i) * 4.2
-		_add_box("Mural slab", Vector3(-10.55, 2.2, z), Vector3(0.12, 2.5, 3.5), Color(0.25, 0.20, 0.15), false)
-		_add_box("Mural frame top", Vector3(-10.43, 3.43, z), Vector3(0.14, 0.12, 3.65), Color(0.70, 0.54, 0.31), false)
-		_add_box("Mural frame base", Vector3(-10.43, 0.98, z), Vector3(0.14, 0.12, 3.65), Color(0.70, 0.54, 0.31), false)
-		_add_box("Mural frame side A", Vector3(-10.43, 2.2, z - 1.77), Vector3(0.14, 2.5, 0.12), Color(0.70, 0.54, 0.31), false)
-		_add_box("Mural frame side B", Vector3(-10.43, 2.2, z + 1.77), Vector3(0.14, 2.5, 0.12), Color(0.70, 0.54, 0.31), false)
-		if i == 0:
-			_add_sphere("Mural sun", Vector3(-10.3, 2.55, z), 0.48, Color(0.91, 0.67, 0.29), false)
-			for j in 3:
-				_add_box("Mural home", Vector3(-10.3, 1.55, z - 0.85 + float(j) * 0.85), Vector3(0.25, 0.55, 0.42), Color(0.73, 0.62, 0.43), false)
-		elif i == 1:
-			_add_sphere("Mural power", Vector3(-10.3, 2.4, z), 0.42, Color(0.38, 0.72, 0.91), false)
-			for j in 3:
-				_add_box("Mural worshipper", Vector3(-10.3, 1.5, z - 0.9 + float(j) * 0.9), Vector3(0.22, 0.7, 0.17), Color(0.76, 0.66, 0.49), false)
-		else:
-			_add_box("Mural fallen tower", Vector3(-10.3, 1.5, z - 0.5), Vector3(0.25, 1.1, 0.62), Color(0.50, 0.40, 0.29), false)
-			_add_box("Mural broken tower", Vector3(-10.3, 1.35, z + 0.55), Vector3(0.25, 0.78, 0.48), Color(0.50, 0.40, 0.29), false)
-			_add_box("Mural fracture", Vector3(-10.28, 2.1, z), Vector3(0.16, 0.08, 2.4), Color(0.40, 0.76, 0.94), false)
+	# Distinct narrative beats are depicted in original painted-style SVG relief art.
+	_add_mural("Ritual mural", "res://murals/ritual.svg", Vector3(14, 2.2, -0.35), PI)
+	_add_mural("Curse mural", "res://murals/curse.svg", Vector3(-5.65, 2.15, 7), PI / 2.0)
+	_revealed_mural = _add_mural("Completed story mural", "res://murals/reveal.svg", Vector3(-14, 2.3, 38.55), PI)
+	_revealed_mural.visible = false
+	_mural_light = _add_point_light(Vector3(-14, 3.2, 37.8), Color(0.43, 0.71, 0.90), 0.0, 8.0)
+	var sanctuary_clue := _add_sphere("Sanctuary discovery", Vector3(14, 1.25, -1.7), 0.28, Color(0.96, 0.67, 0.28), false)
+	var curse_clue := _add_sphere("Curse discovery", Vector3(4.2, 1.1, 9.5), 0.23, Color(0.45, 0.67, 0.88), false)
+	var division_clue := _add_sphere("Division discovery", Vector3(-14, 1.2, 22.7), 0.22, Color(0.45, 0.74, 0.92), false)
+	_add_point_light(Vector3(14, 1.5, -1.7), Color(0.96, 0.67, 0.28), 0.5, 3.5)
+	_add_point_light(Vector3(4.2, 1.4, 9.5), Color(0.45, 0.67, 0.88), 0.45, 3.2)
+	_add_point_light(Vector3(-14, 1.5, 22.7), Color(0.45, 0.74, 0.92), 0.42, 3.5)
+	# The sanctuary's surviving columns form a deliberate ring around its vessel mural.
+	for p in [Vector3(10.0, 1.8, -10.0), Vector3(18.0, 1.8, -10.0), Vector3(10.0, 1.8, -2.0), Vector3(18.0, 1.8, -2.0)]:
+		_add_cylinder("Sanctuary carved column", p, 0.34, 3.6, Color(0.47, 0.40, 0.31), false)
+	# Four toppled cut stones echo the separation depicted in the next chamber.
+	for i in 4:
+		var angle := float(i) * PI / 2.0
+		_add_box("Separated Grail stone", Vector3(-14.0 + cos(angle) * 2.4, 0.18, 18.0 + sin(angle) * 2.4), Vector3(0.78, 0.34, 0.44), Color(0.39, 0.37, 0.32), false, Vector3(0, rad_to_deg(angle), 16.0))
+	story_clues = [
+		{"id":"sanctuary", "node":sanctuary_clue, "text":"A people gathered to guard the vessel."},
+		{"id":"curse", "node":curse_clue, "text":"Its light reached beyond the altar."},
+		{"id":"division", "node":division_clue, "text":"They broke it to protect the living."}
+	]
 	# Broken Grail emblem over the abandoned entrance camp.
 	for part in [Vector3(-0.55, 0.15, 0), Vector3(0.55, 0.15, 0), Vector3(-0.55, -0.42, 0), Vector3(0.55, -0.42, 0)]:
 		_add_box("Broken emblem shard", Vector3(part.x, 2.5 + part.y, -22.15), Vector3(0.55, 0.48, 0.1), Color(0.75, 0.59, 0.31), false, Vector3(0, 0, part.x * 18.0))
@@ -149,47 +213,38 @@ func _build_story_clues() -> void:
 	_add_box("Discarded trowel handle", Vector3(1.5, 0.15, -18.9), Vector3(0.08, 0.08, 1.2), Color(0.42, 0.30, 0.18), false, Vector3(0, 0, 35))
 	_add_box("Trowel blade", Vector3(1.85, 0.11, -18.45), Vector3(0.33, 0.05, 0.3), Color(0.55, 0.56, 0.52), false, Vector3(0, 0, 35))
 	_journal = _add_box("Explorer journal", Vector3(0.8, 0.12, -19.2), Vector3(0.52, 0.08, 0.72), Color(0.45, 0.31, 0.18), false, Vector3(0, 0, -15))
-	_add_box("Abandoned pack", Vector3(8.9, 0.47, -16.5), Vector3(0.9, 0.95, 0.65), Color(0.34, 0.27, 0.20), false)
+	_add_box("Abandoned pack", Vector3(4.4, 0.47, 9.5), Vector3(0.9, 0.95, 0.65), Color(0.34, 0.27, 0.20), false)
 	# Scrape marks and a cracked, discarded pottery relic mark careless digging.
+	_add_sphere("Broken statue head", Vector3(-3.7, 0.42, 4.1), 0.55, Color(0.37, 0.33, 0.28), false)
+	_add_box("Fallen statue", Vector3(-3.4, 0.28, 4.8), Vector3(1.4, 0.55, 0.9), Color(0.34, 0.30, 0.25), false, Vector3(0, 0, 22))
+	_energy_scar = _add_box("Energy scar", Vector3(-2.4, 0.03, 8.5), Vector3(0.08, 0.04, 4.0), Color(0.30, 0.62, 0.81), false, Vector3(0, 0, -31))
+	_energy_scar_light = _add_point_light(Vector3(-2.4, 0.28, 8.5), Color(0.30, 0.68, 0.88), 0.0, 4.0)
+	# Collapsed stone and fleeing silhouettes in the curse room communicate consequence.
 	for i in 3:
-		_add_box("Excavation scrape", Vector3(-7.0 + i * 0.35, 0.035, -14.2 + i * 0.38), Vector3(1.2, 0.03, 0.06), Color(0.16, 0.13, 0.10), false, Vector3(0, 0, 18))
-	_add_box("Cracked relic", Vector3(-5.7, 0.2, -13.7), Vector3(0.5, 0.32, 0.42), Color(0.48, 0.24, 0.18), false, Vector3(0, 0, 24))
-	_add_sphere("Broken statue head", Vector3(6.0, 0.42, -2.3), 0.55, Color(0.37, 0.33, 0.28), false)
-	_add_box("Broken statue torso", Vector3(7.0, 0.28, -2.6), Vector3(1.4, 0.55, 0.9), Color(0.34, 0.30, 0.25), false, Vector3(0, 0, 22))
-	_energy_scar = _add_box("Energy scar", Vector3(-3.0, 0.03, 0.5), Vector3(0.08, 0.04, 5.0), Color(0.30, 0.62, 0.81), false, Vector3(0, 0, -31))
-	_energy_scar_light = _add_point_light(Vector3(-3.0, 0.28, 0.5), Color(0.30, 0.68, 0.88), 0.0, 4.0)
-	_build_inner_mural()
+		_add_box("Ruptured floor vein", Vector3(-3.0 + i * 0.55, 0.045, 6.0 + i * 0.8), Vector3(1.35, 0.04, 0.07), Color(0.14, 0.39, 0.50), false, Vector3(0, 0, 22))
+	# The original camp keeps the failed-expedition introduction intact.
+	_add_box("Broken emblem left", Vector3(-0.55, 2.5, -23.15), Vector3(0.55, 0.5, 0.1), Color(0.75, 0.59, 0.31), false, Vector3(0, 0, -18))
+	_add_box("Broken emblem right", Vector3(0.55, 2.1, -23.15), Vector3(0.55, 0.5, 0.1), Color(0.75, 0.59, 0.31), false, Vector3(0, 0, 18))
 
 
-func _build_inner_mural() -> void:
-	_inner_mural = Node3D.new()
-	_inner_mural.name = "Damaged Grail mural"
-	_inner_mural.position = Vector3(0, 2.5, 9.7)
-	add_child(_inner_mural)
-	_add_box("Mural panel", Vector3.ZERO, Vector3(9.0, 3.1, 0.18), Color(0.24, 0.20, 0.16), false, Vector3.ZERO, _inner_mural)
-	_add_box("Mural caption band", Vector3(0, -1.18, -0.12), Vector3(8.6, 0.34, 0.08), Color(0.37, 0.30, 0.22), false, Vector3.ZERO, _inner_mural)
-	# Vessel, four separate shards, and four hands pulling outward.
-	_add_cylinder("Mural vessel bowl", Vector3(0, 0.1, -0.14), 0.62, 0.48, Color(0.79, 0.60, 0.31), false, Vector3.ZERO, _inner_mural)
-	_add_cylinder("Mural vessel stem", Vector3(0, -0.38, -0.14), 0.11, 0.42, Color(0.79, 0.60, 0.31), false, Vector3.ZERO, _inner_mural)
-	_add_cylinder("Mural vessel foot", Vector3(0, -0.63, -0.14), 0.38, 0.12, Color(0.79, 0.60, 0.31), false, Vector3.ZERO, _inner_mural)
-	for side in [-1.0, 1.0]:
-		_add_box("Mural separating figure", Vector3(side * 2.3, -0.25, -0.14), Vector3(0.28, 0.9, 0.08), Color(0.69, 0.61, 0.47), false, Vector3(0, 0, side * -10.0), _inner_mural)
-		_add_box("Mural outstretched arm", Vector3(side * 1.35, 0.08, -0.15), Vector3(1.2, 0.11, 0.07), Color(0.69, 0.61, 0.47), false, Vector3(0, 0, side * -16.0), _inner_mural)
-	for shard in [Vector3(-0.95, 0.42, -0.2), Vector3(0.95, 0.42, -0.2), Vector3(-0.82, -0.48, -0.2), Vector3(0.82, -0.48, -0.2)]:
-		_add_box("Mural separated shard", shard, Vector3(0.28, 0.34, 0.07), Color(0.57, 0.48, 0.35), false, Vector3(0, 0, 28), _inner_mural)
-	_revealed_mural = Node3D.new()
-	_revealed_mural.name = "Mural protection reveal"
-	_revealed_mural.position = _inner_mural.position
-	_revealed_mural.visible = false
-	add_child(_revealed_mural)
-	_add_box("Protective mural circle left", Vector3(-3.25, -0.05, -0.25), Vector3(0.12, 2.25, 0.08), Color(0.45, 0.78, 0.86), false, Vector3(0, 0, -24), _revealed_mural)
-	_add_box("Protective mural circle right", Vector3(3.25, -0.05, -0.25), Vector3(0.12, 2.25, 0.08), Color(0.45, 0.78, 0.86), false, Vector3(0, 0, 24), _revealed_mural)
-	_add_box("Protective mural base", Vector3(0, -1.12, -0.25), Vector3(6.2, 0.12, 0.08), Color(0.45, 0.78, 0.86), false, Vector3.ZERO, _revealed_mural)
-	_mural_light = _add_point_light(Vector3(0, 3.1, 9.0), Color(0.43, 0.71, 0.90), 0.0, 8.0)
+func _add_mural(label: String, path: String, pos: Vector3, yaw: float) -> MeshInstance3D:
+	var image := MeshInstance3D.new()
+	image.name = label
+	var quad := QuadMesh.new()
+	quad.size = Vector2(7.5, 3.7)
+	image.mesh = quad
+	image.position = pos
+	image.rotation.y = yaw
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_texture = load(path) as Texture2D
+	image.material_override = mat
+	add_child(image)
+	return image
 
 
 func _build_excavation_sites() -> void:
-	var positions := [Vector3(-7.0, 0.0, -14.5), Vector3(6.5, 0.0, -7.5), Vector3(-6.0, 0.0, 0.5), Vector3(5.5, 0.0, 6.5)]
+	var positions := [Vector3(-0.6, 0.0, -19.0), Vector3(15.7, 0.0, -6.0), Vector3(-1.0, 0.0, 8.0), Vector3(-17.0, 0.0, 18.0)]
 	var inscriptions := ["Four pieces. One forgotten warning.", "They feared what the vessel held.", "To protect them, it was divided.", "The seal was never meant to break."]
 	var fragment_colors := [Color(0.35, 0.76, 0.85), Color(0.82, 0.61, 0.32), Color(0.61, 0.51, 0.79), Color(0.42, 0.80, 0.66)]
 	for i in positions.size():
@@ -210,20 +265,20 @@ func _build_excavation_sites() -> void:
 
 
 func _build_artifacts() -> void:
-	_add_artifact("Sun Charm", "This relic brightens the path. Its weight feels strange.", Vector3(8.9, 0.25, -12.8), Color(0.91, 0.69, 0.32), 1.35, 1.0, false)
-	_add_artifact("Pilgrim Sandals", "Worn leather, threaded with gold.", Vector3(-9.0, 0.25, -5.7), Color(0.81, 0.61, 0.29), 1.0, 1.3, false)
-	_add_artifact("Obsidian Idol", "The stone drinks the light around it.", Vector3(8.9, 0.25, -1.8), Color(0.47, 0.36, 0.67), 0.58, 0.82, true)
-	_add_artifact("Lead Anklet", "Tiny footprints circle its cold surface.", Vector3(-9.5, 0.25, 3.4), Color(0.53, 0.42, 0.63), 1.0, 0.58, true)
-	_add_artifact("Gilded Mask", "The face is warm. Something stirs within.", Vector3(8.9, 0.25, -16.1), Color(0.86, 0.68, 0.29), 1.0, 0.55, true)
+	_add_artifact("Sun Charm", "This relic brightens the path. Its weight feels strange.", Vector3(18.2, 0.25, -4.0), Color(0.91, 0.69, 0.32), 1.35, 1.0, false)
+	_add_artifact("Pilgrim Sandals", "Worn leather, threaded with gold.", Vector3(10.2, 0.25, -4.0), Color(0.81, 0.61, 0.29), 1.0, 1.3, false)
+	_add_artifact("Obsidian Idol", "The stone drinks the light around it.", Vector3(3.9, 0.25, 5.1), Color(0.47, 0.36, 0.67), 0.58, 0.82, true)
+	_add_artifact("Lead Anklet", "Tiny footprints circle its cold surface.", Vector3(-4.0, 0.25, 9.6), Color(0.53, 0.42, 0.63), 1.0, 0.58, true)
+	_add_artifact("Gilded Mask", "The face is warm. Something stirs within.", Vector3(-18.2, 0.25, 20.3), Color(0.86, 0.68, 0.29), 1.0, 0.55, true)
 
 
 func _build_restoration_and_final_chamber() -> void:
-	_add_cylinder("Restoration dais", Vector3(0, 0.18, 15.0), 2.4, 0.36, Color(0.40, 0.34, 0.27), false)
-	_add_cylinder("Dais inlay", Vector3(0, 0.39, 15.0), 1.65, 0.08, Color(0.79, 0.63, 0.34), false)
-	_add_cylinder("Empty grail socket", Vector3(0, 0.52, 15.0), 0.62, 0.18, Color(0.21, 0.24, 0.24), false)
-	_add_point_light(Vector3(0, 2.4, 15.0), Color(0.44, 0.70, 0.88), 0.3, 4.0)
+	_add_cylinder("Restoration dais", Vector3(-14, 0.18, 33.0), 2.4, 0.36, Color(0.40, 0.34, 0.27), false)
+	_add_cylinder("Dais inlay", Vector3(-14, 0.39, 33.0), 1.65, 0.08, Color(0.79, 0.63, 0.34), false)
+	_add_cylinder("Empty grail socket", Vector3(-14, 0.52, 33.0), 0.62, 0.18, Color(0.21, 0.24, 0.24), false)
+	_add_point_light(Vector3(-14, 2.4, 33.0), Color(0.44, 0.70, 0.88), 0.3, 4.0)
 	_restored_grail = _make_grail_mesh()
-	_restored_grail.position = Vector3(0, 0.7, 15.0)
+	_restored_grail.position = Vector3(-14, 0.7, 33.0)
 	_restored_grail.scale = Vector3.ZERO
 	_restored_grail.visible = false
 	add_child(_restored_grail)
@@ -233,7 +288,7 @@ func _build_restoration_and_final_chamber() -> void:
 	_dark_pulse = MeshInstance3D.new()
 	_dark_pulse.name = "Ominous restoration pulse"
 	_dark_pulse.mesh = pulse_mesh
-	_dark_pulse.position = Vector3(0, 1.0, 15.0)
+	_dark_pulse.position = Vector3(-14, 1.0, 33.0)
 	var pulse_material := StandardMaterial3D.new()
 	pulse_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	pulse_material.albedo_color = Color(0.035, 0.025, 0.055, 0.45)
@@ -246,7 +301,8 @@ func _build_restoration_and_final_chamber() -> void:
 func _build_player() -> void:
 	player = CharacterBody3D.new()
 	player.name = "Explorer"
-	player.position = Vector3(0, 0.08, -20.0)
+	player.position = Vector3(0, 0.08, -20.3)
+	# Face from the open entrance into camp and toward the first marked site.
 	player.rotation.y = PI
 	add_child(player)
 	var collision := CollisionShape3D.new()
@@ -308,6 +364,43 @@ func _build_hud() -> void:
 	crosshair.position = Vector2(-12, -19)
 	crosshair.size = Vector2(24, 36)
 	root.add_child(crosshair)
+	_fragment_popup = Control.new()
+	_fragment_popup.name = "Fragment inspection"
+	_fragment_popup.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_fragment_popup.visible = false
+	_fragment_popup.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_fragment_popup)
+	var shade := ColorRect.new()
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.color = Color(0.015, 0.022, 0.028, 0.88)
+	_fragment_popup.add_child(shade)
+	var card := PanelContainer.new()
+	card.name = "PanelContainer"
+	card.set_anchors_preset(Control.PRESET_CENTER)
+	card.position = Vector2(-320, -190)
+	card.size = Vector2(640, 380)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.12, 0.12, 0.98)
+	style.border_color = Color(0.73, 0.60, 0.37)
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(8)
+	card.add_theme_stylebox_override("panel", style)
+	_fragment_popup.add_child(card)
+	var stack := VBoxContainer.new()
+	stack.name = "VBoxContainer"
+	stack.alignment = BoxContainer.ALIGNMENT_CENTER
+	stack.add_theme_constant_override("separation", 10)
+	card.add_child(stack)
+	var symbol := _label("◈", 64, Color(0.68, 0.83, 0.86), HORIZONTAL_ALIGNMENT_CENTER)
+	symbol.name = "Fragment symbol"
+	symbol.custom_minimum_size.y = 90
+	stack.add_child(symbol)
+	stack.add_child(_label("GRAIL FRAGMENT RECOVERED", 19, Color(0.91, 0.77, 0.49), HORIZONTAL_ALIGNMENT_CENTER))
+	var inscription := _label("", 24, Color(0.96, 0.93, 0.84), HORIZONTAL_ALIGNMENT_CENTER)
+	inscription.name = "Inscription"
+	inscription.custom_minimum_size.y = 70
+	stack.add_child(inscription)
+	stack.add_child(_label("Press Enter to continue", 15, Color(0.66, 0.69, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
 
 
 func _label(copy: String, font_size: int, color: Color, align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> Label:
@@ -325,6 +418,11 @@ func _label(copy: String, font_size: int, color: Color, align: HorizontalAlignme
 
 func _process(delta: float) -> void:
 	_tool_cooldown = maxf(0.0, _tool_cooldown - delta)
+	if _fragment_popup_open:
+		_fragment_popup_timer -= delta
+		if _fragment_popup_timer <= 0.0:
+			_fragment_popup.visible = false
+			_fragment_popup_open = false
 	if message_timer > 0.0:
 		message_timer -= delta
 		if message_timer <= 0.0:
@@ -347,6 +445,8 @@ func _process(delta: float) -> void:
 
 func _physics_process(delta: float) -> void:
 	if _ended:
+		return
+	if _fragment_popup_open:
 		return
 	if state == State.RESTORING:
 		return
@@ -380,7 +480,6 @@ func _physics_process(delta: float) -> void:
 	player.move_and_slide()
 	_handle_excavation(delta)
 	_handle_restoration(delta)
-	_check_story_proximity()
 	if carried.is_empty() == false:
 		carried["node"].global_position = camera.global_position + (-camera.global_basis.z * 0.7) + Vector3(0, -0.25, 0)
 		if carried.get("delayed", false):
@@ -394,6 +493,12 @@ func _physics_process(delta: float) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _fragment_popup_open:
+		if event is InputEventKey and event.pressed and [KEY_ENTER, KEY_KP_ENTER, KEY_SPACE, KEY_ESCAPE].has(event.keycode):
+			_fragment_popup.visible = false
+			_fragment_popup_open = false
+			_fragment_popup_timer = 0.0
+		return
 	if event is InputEventKey:
 		if event.keycode == KEY_W or event.keycode == KEY_UP:
 			_move_forward = event.pressed
@@ -503,7 +608,7 @@ func _collect_fragment(site: Dictionary) -> void:
 	scar_material.emission = Color(0.30, 0.68, 0.88)
 	scar_material.emission_energy_multiplier = 0.35 + float(fragments) * 0.3
 	_energy_scar_light.light_energy = 0.2 + float(fragments) * 0.25
-	_show_message(site["inscription"], 3.0)
+	_show_fragment_popup(site)
 	site["node"].get_node("Burial mark").visible = false
 	site["node"].get_node("Burial mark cross").visible = false
 
@@ -512,6 +617,7 @@ func _restore_grail() -> void:
 	if state != State.EXPLORING or fragments != 4:
 		return
 	state = State.RESTORING
+	story_stage = StoryStage.RESTORATION
 	_restored_grail.visible = true
 	_revealed_mural.visible = true
 	_mural_light.light_energy = 2.8
@@ -523,8 +629,16 @@ func _restore_grail() -> void:
 	reveal.tween_property(_dark_pulse, "scale", Vector3(5.0, 5.0, 5.0), 0.75)
 	var pulse_material := _dark_pulse.material_override as StandardMaterial3D
 	reveal.tween_property(pulse_material, "albedo_color:a", 0.0, 0.9)
-	for site in sites:
-		site["fragment"].visible = false
+	# Pull the four recovered pieces toward the socket before the vessel resolves.
+	for index in sites.size():
+		var piece: Node3D = sites[index]["fragment"]
+		piece.visible = true
+		var start := piece.global_position
+		var target := Vector3(-14.0 + (float(index) - 1.5) * 0.14, 1.0 + float(index % 2) * 0.12, 33.0)
+		var assembly := create_tween()
+		assembly.tween_property(piece, "global_position", target, 0.95).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		assembly.tween_property(piece, "scale", Vector3.ZERO, 0.24)
+		piece.set_meta("assembly_start", start)
 	await get_tree().create_timer(1.8).timeout
 	world_environment.environment.ambient_light_color = Color(0.30, 0.37, 0.36)
 	key_light.light_energy = 0.22
@@ -553,6 +667,21 @@ func _interact() -> void:
 		_journal_read = true
 		_show_message("We came for the Grail. Four pieces remain beneath this temple. Dig carefully.", 3.6)
 		return
+	for clue in story_clues:
+		if player.global_position.distance_to(clue["node"].global_position) < 2.6:
+			var clue_id: String = clue["id"]
+			if not story_clues_seen[clue_id]:
+				story_clues_seen[clue_id] = true
+				if clue_id == "sanctuary":
+					story_stage = StoryStage.DISCOVERY
+				elif clue_id == "curse":
+					story_stage = StoryStage.SUSPICION
+				elif clue_id == "division":
+					story_stage = StoryStage.TWIST
+			_show_message(clue["text"], 3.4)
+			if clue_id == "division":
+				_trigger_jump_scare()
+			return
 	var artifact := _nearest_artifact()
 	if artifact.is_empty():
 		return
@@ -582,7 +711,16 @@ func _update_hud() -> void:
 		hud_label.text = "FRAGMENT SHATTERED"
 		prompt_label.text = ""
 	else:
-		hud_label.text = "RECOVER THE FOUR FRAGMENTS"
+		if player.global_position.z < -12.0 and player.global_position.x < 7.0:
+			hud_label.text = "THE ABANDONED EXPEDITION"
+		elif player.global_position.x > 7.0:
+			hud_label.text = "THE GRAIL SANCTUARY"
+		elif player.global_position.x > -7.0:
+			hud_label.text = "THE SHATTERED HALL"
+		elif player.global_position.z < 27.0:
+			hud_label.text = "THE INNER CHAMBER"
+		else:
+			hud_label.text = "THE RESTORATION ALTAR"
 		var site := _nearest_site()
 		if not site.is_empty():
 			if site["state"] == "buried":
@@ -593,6 +731,10 @@ func _update_hud() -> void:
 				prompt_label.text = "FRAGMENT SHATTERED"
 			else:
 				prompt_label.text = ""
+				for clue in story_clues:
+					if player.global_position.distance_to(clue["node"].global_position) < 2.6 and not story_clues_seen[clue["id"]]:
+						prompt_label.text = "F  •  Examine mural"
+						break
 		else:
 			var artifact := _nearest_artifact()
 			if not artifact.is_empty() and carried.is_empty():
@@ -642,7 +784,7 @@ func _nearest_artifact() -> Dictionary:
 
 
 func _nearest_plinth() -> bool:
-	return player.global_position.distance_to(Vector3(0, 0, 15.0)) < 2.8
+	return player.global_position.distance_to(Vector3(-14, 0, 33.0)) < 2.8
 
 
 func _near_plinth() -> bool:
@@ -661,6 +803,20 @@ func _show_message(copy: String, duration: float = 2.5, danger: bool = false) ->
 	message_label.add_theme_color_override("font_color", Color(1.0, 0.62, 0.48) if danger else Color(0.97, 0.85, 0.61))
 	message_label.visible = true
 	message_timer = duration
+
+
+func _show_fragment_popup(site: Dictionary) -> void:
+	var symbols := ["◈", "◉", "✦", "◌"]
+	var colors := [Color(0.35, 0.76, 0.85), Color(0.82, 0.61, 0.32), Color(0.61, 0.51, 0.79), Color(0.42, 0.80, 0.66)]
+	var symbol: Label = _fragment_popup.get_node("PanelContainer/VBoxContainer/Fragment symbol")
+	var inscription: Label = _fragment_popup.get_node("PanelContainer/VBoxContainer/Inscription")
+	var index := int(site["id"]) - 1
+	symbol.text = symbols[index]
+	symbol.add_theme_color_override("font_color", colors[index])
+	inscription.text = str(site["inscription"])
+	_fragment_popup.visible = true
+	_fragment_popup_open = true
+	_fragment_popup_timer = 8.0
 
 
 func _add_box(label: String, pos: Vector3, dimensions: Vector3, color: Color, solid: bool = true, rotation_degrees: Vector3 = Vector3.ZERO, parent: Node = self) -> Node3D:
@@ -771,13 +927,31 @@ func _add_artifact(item_name: String, description: String, pos: Vector3, tint: C
 func _make_fragment_mesh(tint: Color, fragment_id: int) -> Node3D:
 	var root := Node3D.new()
 	var mesh_instance := MeshInstance3D.new()
-	var mesh: Mesh = PrismMesh.new() if fragment_id % 2 == 1 else BoxMesh.new()
-	if mesh is PrismMesh:
-		(mesh as PrismMesh).size = Vector3(0.85, 0.4, 0.72)
-	else:
-		(mesh as BoxMesh).size = Vector3(0.68, 0.48, 0.62)
-	if fragment_id == 2 or fragment_id == 4:
-		mesh_instance.rotation_degrees.y = 45.0
+	var mesh: Mesh
+	match fragment_id:
+		1:
+			var shard := PrismMesh.new()
+			shard.size = Vector3(0.85, 0.4, 0.72)
+			mesh = shard
+		2:
+			var wedge := BoxMesh.new()
+			wedge.size = Vector3(0.68, 0.48, 0.62)
+			mesh = wedge
+			mesh_instance.rotation_degrees = Vector3(9, 45, 12)
+		3:
+			var cup_base := CylinderMesh.new()
+			cup_base.top_radius = 0.19
+			cup_base.bottom_radius = 0.42
+			cup_base.height = 0.34
+			cup_base.radial_segments = 5
+			mesh = cup_base
+		4:
+			var fractured_cap := SphereMesh.new()
+			fractured_cap.radius = 0.39
+			fractured_cap.height = 0.5
+			fractured_cap.radial_segments = 7
+			fractured_cap.rings = 4
+			mesh = fractured_cap
 	mesh_instance.mesh = mesh
 	var material := _stone_material(tint)
 	material.emission_enabled = true
@@ -904,12 +1078,8 @@ func _make_scare_sound() -> AudioStreamWAV:
 	return stream
 
 
-func _check_story_proximity() -> void:
+func _trigger_jump_scare() -> void:
 	if _scare_triggered or _ended:
-		return
-	var at_mural := player.global_position.distance_to(Vector3(0, 0, 9.7)) < 2.8
-	var at_relic := player.global_position.distance_to(Vector3(8.9, 0, -16.1)) < 2.0
-	if not at_mural and not at_relic:
 		return
 	_scare_triggered = true
 	_scare_active = true
@@ -927,6 +1097,8 @@ func _check_story_proximity() -> void:
 	await get_tree().create_timer(0.43).timeout
 	_ghost.visible = false
 	_scare_active = false
+
+
 
 
 func _stone_material(tint: Color) -> StandardMaterial3D:
