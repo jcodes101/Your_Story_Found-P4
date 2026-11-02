@@ -1,7 +1,8 @@
 extends Control
 ## App shell for the menu, briefing, pause flow, and gameplay lifecycle.
 
-const GAMEPLAY_SCENE := preload("res://gameplay.tscn")
+const GAMEPLAY_SCENE := preload("res://gameplay_3d.tscn")
+const FALLBACK_2D_SCENE := preload("res://gameplay.tscn")
 const GrailEmblemScript := preload("res://grail_emblem.gd")
 
 enum View { MAIN_MENU, BRIEFING, CONTROLS, SETTINGS, CREDITS, PLAYING, PAUSED, ENDING }
@@ -18,6 +19,7 @@ var _view: int = View.MAIN_MENU
 var _return_to_pause := false
 var _last_victory := false
 var _time := 0.0
+var _selected_gameplay_scene: PackedScene = GAMEPLAY_SCENE
 
 
 func _ready() -> void:
@@ -102,6 +104,7 @@ func _on_viewport_size_changed() -> void:
 func _show_main_menu() -> void:
 	get_tree().paused = false
 	_remove_game()
+	_selected_gameplay_scene = GAMEPLAY_SCENE
 	_view = View.MAIN_MENU
 	var viewport_width := get_viewport_rect().size.x
 	var screen := _new_screen(View.MAIN_MENU)
@@ -122,6 +125,7 @@ func _show_main_menu() -> void:
 	var begin := _make_button("BEGIN EXPEDITION", _show_briefing, true)
 	content.add_child(begin)
 	content.add_child(_make_button("HOW TO PLAY", _show_controls.bind(false)))
+	content.add_child(_make_button("2D FALLBACK BUILD", _enter_2d_fallback))
 	content.add_child(_make_button("SETTINGS", _show_settings.bind(false)))
 	content.add_child(_make_button("CREDITS", _show_credits))
 	begin.grab_focus()
@@ -138,15 +142,14 @@ func _show_briefing() -> void:
 	intro.alignment = BoxContainer.ALIGNMENT_CENTER
 	intro.add_theme_constant_override("separation", 16)
 	intro.add_child(_make_emblem(74.0))
-	var mission := _make_label("Archaeologist: recover four Grail fragments in the abandoned temple.", 19, SAND)
+	var mission := _make_label("Four fragments lie below. The murals remember what the last crew forgot.", 19, SAND)
 	mission.custom_minimum_size = Vector2(0.0, 56.0)
 	intro.add_child(mission)
 	content.add_child(intro)
 
-	_add_rule(content, "Light reveals marks.")
-	_add_rule(content, "Dig, then brush. Digging twice shatters a fragment.")
-	_add_rule(content, "Inspect relics: blessings or curses.")
-	_add_rule(content, "Four intact: hold G 3s to restore. Damage one; fail.")
+	_add_rule(content, "Sweep your light for marks. E digs; R brushes before the next layer.")
+	_add_rule(content, "F takes a relic. Its effect changes your light or pace.")
+	_add_rule(content, "Restore all four at the altar to complete the expedition.")
 
 	_add_spacer(content, 2.0)
 	var actions := HBoxContainer.new()
@@ -225,6 +228,7 @@ func _show_credits() -> void:
 func _show_pause_menu() -> void:
 	if _game == null:
 		return
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_view = View.PAUSED
 	get_tree().paused = true
 	var screen := _new_screen(View.PAUSED, true)
@@ -249,7 +253,15 @@ func _show_ending(victory: bool) -> void:
 	content.add_theme_constant_override("separation", 12)
 	var emblem := _make_emblem(150.0, not victory)
 	content.add_child(emblem)
-	if victory:
+	var ending_copy := ""
+	if _game != null:
+		for property in _game.get_property_list():
+			if property["name"] == "ending_text":
+				ending_copy = str(_game.get("ending_text"))
+				break
+	if not ending_copy.is_empty():
+		content.add_child(_make_label(ending_copy, 24, PALE_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
+	elif victory:
 		content.add_child(_make_label("GRAIL RESTORED", 30, PALE_GOLD, HORIZONTAL_ALIGNMENT_CENTER))
 	else:
 		content.add_child(_make_label("FRAGMENT SHATTERED", 30, Color(0.96, 0.57, 0.43), HORIZONTAL_ALIGNMENT_CENTER))
@@ -263,11 +275,18 @@ func _enter_game() -> void:
 	get_tree().paused = false
 	_clear_screen()
 	_view = View.PLAYING
-	_game = GAMEPLAY_SCENE.instantiate()
+	_game = _selected_gameplay_scene.instantiate()
 	_game.process_mode = Node.PROCESS_MODE_PAUSABLE
 	add_child(_game)
 	_game.game_ended.connect(_on_game_ended)
 	_game.set_controls_blocked(true)
+	if _game is Node3D:
+		_game._show_message("Click to look • WASD move • E dig • R brush", 3.5)
+
+
+func _enter_2d_fallback() -> void:
+	_selected_gameplay_scene = FALLBACK_2D_SCENE
+	_enter_game()
 
 
 func _on_game_ended(victory: bool) -> void:

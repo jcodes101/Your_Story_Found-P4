@@ -15,8 +15,10 @@ Godot 4.3+ project, **Compatibility** renderer. Open `project.godot` in Godot an
 | **Enter / Space** | Activate the focused menu button |
 | **F1** | Debug: toggle bright mode |
 
-## Goal
-Recover 4 buried Grail fragments without damaging any, then hold G to restore it. Sweep the flashlight over the temple floor to reveal pulsing X marks that brighten in the beam; the fragments remain hidden until excavated. Nearby surroundings stay faintly visible, and the beam fades with distance. The flashlight has no battery limit. Start by reading the journal next to you (F).
+## Playtest build
+The default build is a compact first-person 3D temple. Read the entrance journal, follow the glowing ground marks, hold E for three seconds to dig a layer, and hold R for 1.5 seconds to brush before digging again. F takes or drops relics. Recover all four fragments intact and hold G for three seconds at the altar to restore the Grail. The ending screen offers a restart. The flashlight has no battery limit.
+
+The murals and fragment inscriptions gradually reveal why the Grail was broken. A brief apparition appears once in the inner chamber. The original 2D game remains available from the main menu as **2D FALLBACK BUILD**.
 
 ## Files (who to hand off to)
 | File | What it is | Owner (per team doc) |
