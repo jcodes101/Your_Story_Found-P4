@@ -176,11 +176,16 @@ func _show_controls(return_to_pause: bool) -> void:
 		["MOUSE", "AIM / SWEEP LIGHT"],
 		["E • HOLD 3S", "DIG ONE LAYER"],
 		["R • HOLD 1.5S", "BRUSH"],
-		["F", "READ / TAKE / DROP"],
+		["F", "INTERACT / COLLECT / DROP"],
 		["G • HOLD 3S", "RESTORE (4/4)"],
 		["ESC", "PAUSE"],
 		["ENTER / SPACE", "SELECT"],
 	]
+	if _selected_gameplay_scene == GAMEPLAY_SCENE:
+		rows.insert(5, ["J", "FRAGMENT JOURNAL"])
+		rows.insert(6, ["C (HOLD)", "CROUCH THROUGH THE FISSURE"])
+	else:
+		rows[4] = ["F", "READ / TAKE / DROP"]
 	for row in rows:
 		content.add_child(_make_control_row(row[0], row[1]))
 	_add_spacer(content, 8.0)

@@ -9,14 +9,16 @@ Godot 4.3+ project, **Compatibility** renderer. Open `project.godot` in Godot an
 | Mouse | Aim flashlight and sweep for marked dig sites |
 | Hold **E** (3s) | Dig (can't move while digging) |
 | Hold **R** (1.5s) | Brush |
-| **F** | Pick up / drop an object, read the journal, examine murals |
+| **F** | Activate the orb, inspect clues, collect fragments, take / drop relics |
+| **J** | Open / close the fragment journal |
+| Hold **C** | Crouch through the hidden fissure |
 | Hold **G** (3s) | Restore the Holy Grail (needs all 4 fragments) |
 | **Escape** | Pause / resume or return from a sub-screen |
 | **Enter / Space** | Continue from a fragment inspection; activate focused menu buttons |
 | **F1** | Debug: toggle bright mode |
 
 ## Playtest build
-The default build is a compact first-person 3D temple with a camp, Grail sanctuary, shattered hall, inner chamber, and separate restoration altar. Follow the continuously open dog-leg passages and lighted mural clues; no discovery is required to unlock a route. Each of the four discovery chambers holds one fragment. Examine murals with F to learn what happened. Hold E for three seconds to dig a layer, then R for 1.5 seconds to brush before digging again. F takes or drops relics. Recover all four fragments intact and return through the open passages to hold G for three seconds at the altar. The ending screen offers a restart. The flashlight has no battery limit.
+The default build is a compact first-person 3D temple. The sanctuary orb opens the stone route to Room 3. Investigate the lit crack there with F, then hold C to crouch through the fissure into the inner chamber. E digs each layer for three seconds; R brushes. When a fragment is exposed, press F to physically collect it. J reopens its inscription in the field journal. F also examines murals and takes or drops optional relics. Recover all four intact, return to the altar, and hold G for three seconds. The finale plays before the success screen. The flashlight has no battery limit.
 
 Painted murals depict the Grail's ceremony, curse, deliberate separation, and final revelation. Fragment inspections pause the action and show their individual clues. A brief apparition appears once when the inner mural is examined. The original 2D game remains available from the main menu as **2D FALLBACK BUILD**.
 
