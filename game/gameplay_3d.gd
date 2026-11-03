@@ -8,6 +8,11 @@ const BRUSH_TIME := 1.5
 const DAMAGE_GRACE := 0.4
 const RESTORE_TIME := 3.0
 const MOVE_SPEED := 4.3
+const SANDSTONE_TEXTURE: Texture2D = preload("res://art_sandstone.png")
+const RITUAL_FRESCO: Texture2D = preload("res://murals/ritual_fresco.png")
+const CURSE_FRESCO: Texture2D = preload("res://murals/curse_fresco.png")
+const DIVISION_FRESCO: Texture2D = preload("res://murals/division_fresco.png")
+const REVEAL_FRESCO: Texture2D = preload("res://murals/reveal_fresco.png")
 
 enum State { EXPLORING, RESTORING, WON, LOST }
 enum StoryStage { INTRODUCTION, DISCOVERY, SUSPICION, TWIST, RESTORATION }
@@ -119,6 +124,10 @@ func _build_environment() -> void:
 	environment.ambient_light_color = Color(0.20, 0.22, 0.23)
 	environment.ambient_light_energy = 0.55
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.fog_enabled = true
+	environment.fog_light_color = Color(0.27, 0.24, 0.20)
+	environment.fog_density = 0.006
+	environment.fog_sky_affect = 0.0
 	world_environment = WorldEnvironment.new()
 	world_environment.environment = environment
 	add_child(world_environment)
@@ -214,6 +223,7 @@ func _room(center: Vector2, size: Vector2, label: String, openings: Dictionary) 
 				_add_box(label + " " + side + " wall", Vector3(x0 + left_len / 2.0, 2, z), Vector3(left_len, 4, 0.7), c)
 				_add_box(label + " " + side + " wall", Vector3(opening_center + 1.8 + right_len / 2.0, 2, z), Vector3(right_len, 4, 0.7), c)
 				_add_box(label + " portal lintel", Vector3(opening_center, 3.6, z), Vector3(3.6, 0.8, 0.7), c, false)
+				_add_portal_frame(label, Vector3(opening_center, 0.0, z), side)
 			else:
 				_add_box(label + " " + side + " wall", Vector3(center.x, 2, z), Vector3(size.x, 4, 0.7), c)
 		else:
@@ -224,8 +234,27 @@ func _room(center: Vector2, size: Vector2, label: String, openings: Dictionary) 
 				_add_box(label + " " + side + " wall", Vector3(x, 2, z0 + near_len / 2.0), Vector3(0.7, 4, near_len), c)
 				_add_box(label + " " + side + " wall", Vector3(x, 2, opening_center + 1.8 + far_len / 2.0), Vector3(0.7, 4, far_len), c)
 				_add_box(label + " portal lintel", Vector3(x, 3.6, opening_center), Vector3(0.7, 0.8, 3.6), c, false)
+				_add_portal_frame(label, Vector3(x, 0.0, opening_center), side)
 			else:
 				_add_box(label + " " + side + " wall", Vector3(x, 2, center.y), Vector3(0.7, 4, size.y), c)
+		# Rounded piers soften the broad room corners and help the spaces read as built architecture.
+	for px in [x0 + 0.58, x1 - 0.58]:
+		for pz in [z0 + 0.58, z1 - 0.58]:
+			_add_cylinder(label + " rounded pier", Vector3(px, 1.88, pz), 0.31, 3.48, Color(0.43, 0.37, 0.29), false)
+			_add_cylinder(label + " pier foot", Vector3(px, 0.22, pz), 0.39, 0.28, Color(0.53, 0.45, 0.34), false)
+			_add_cylinder(label + " pier capital", Vector3(px, 3.47, pz), 0.40, 0.24, Color(0.54, 0.46, 0.35), false)
+
+
+func _add_portal_frame(label: String, center: Vector3, side: String) -> void:
+	var horizontal := side == "north" or side == "south"
+	if horizontal:
+		for x_offset in [-1.83, 1.83]:
+			_add_cylinder(label + " rounded doorway pier", center + Vector3(x_offset, 1.8, 0), 0.18, 3.5, Color(0.49, 0.41, 0.31), false)
+		_add_cylinder(label + " rounded doorway brow", center + Vector3(0, 3.02, 0), 0.16, 3.86, Color(0.57, 0.46, 0.32), false, Vector3(0, 0, 90))
+	else:
+		for z_offset in [-1.83, 1.83]:
+			_add_cylinder(label + " rounded doorway pier", center + Vector3(0, 1.8, z_offset), 0.18, 3.5, Color(0.49, 0.41, 0.31), false)
+		_add_cylinder(label + " rounded doorway brow", center + Vector3(0, 3.02, 0), 0.16, 3.86, Color(0.57, 0.46, 0.32), false, Vector3(90, 0, 0))
 
 
 func _hall_z(x: float, a: float, b: float) -> void:
@@ -249,10 +278,10 @@ func _hall_x(a: float, b: float, z: float) -> void:
 
 func _build_story_clues() -> void:
 	# Distinct narrative beats are depicted in original painted-style SVG relief art.
-	_add_mural("Ritual mural", "res://murals/ritual.svg", Vector3(14, 2.2, -0.35), PI)
-	_curse_mural = _add_mural("Curse mural", "res://murals/curse.svg", Vector3(-5.65, 2.15, 7), PI / 2.0)
-	_division_mural = _add_mural("Deliberate separation mural", "res://murals/division.svg", Vector3(-14, 2.25, 26.5), 0.0)
-	_revealed_mural = _add_mural("Completed story mural", "res://murals/reveal.svg", Vector3(-14, 2.3, 42.55), 0.0)
+	_add_mural("Ritual mural", "res://murals/ritual_fresco.png", Vector3(14, 2.2, -0.35), PI)
+	_curse_mural = _add_mural("Curse mural", "res://murals/curse_fresco.png", Vector3(-5.65, 2.15, 7), PI / 2.0)
+	_division_mural = _add_mural("Deliberate separation mural", "res://murals/division_fresco.png", Vector3(-14, 2.25, 26.5), PI)
+	_revealed_mural = _add_mural("Completed story mural", "res://murals/reveal_fresco.png", Vector3(-14, 2.3, 42.55), PI)
 	_revealed_mural.visible = false
 	_mural_light = _add_point_light(Vector3(-14, 3.2, 41.8), Color(0.43, 0.71, 0.90), 0.0, 8.0)
 	# The sanctuary's orb is an actual door control, framed as a carved mechanism.
@@ -333,22 +362,51 @@ func _build_story_clues() -> void:
 	# The original camp keeps the failed-expedition introduction intact.
 	_add_box("Broken emblem left", Vector3(-0.55, 2.5, -23.15), Vector3(0.55, 0.5, 0.1), Color(0.75, 0.59, 0.31), false, Vector3(0, 0, -18))
 	_add_box("Broken emblem right", Vector3(0.55, 2.1, -23.15), Vector3(0.55, 0.5, 0.1), Color(0.75, 0.59, 0.31), false, Vector3(0, 0, 18))
+	# Short wall inscriptions support the pictures without explaining the whole mystery.
+	_add_wall_inscription("FOUR PIECES. ONE WARNING.", Vector3(-6.55, 2.65, -18.0), PI / 2.0)
+	_add_wall_inscription("A VESSEL HELD IN TRUST.", Vector3(14.0, 2.25, -11.55), 0.0)
+	_add_wall_inscription("ITS LIGHT BECAME A WOUND.", Vector3(-5.55, 2.7, 4.6), PI / 2.0)
+	_add_wall_inscription("DIVIDED TO SHELTER THE LIVING.", Vector3(-8.48, 2.25, 18.0), -PI / 2.0)
 
 
 func _add_mural(label: String, path: String, pos: Vector3, yaw: float) -> MeshInstance3D:
 	var image := MeshInstance3D.new()
 	image.name = label
 	var quad := QuadMesh.new()
-	quad.size = Vector2(7.5, 3.7)
+	var texture := load(path) as Texture2D
+	var mural_width := 7.5
+	var mural_height := 3.65
+	if texture != null and texture.get_width() > 0:
+		var aspect := float(texture.get_width()) / float(texture.get_height())
+		if aspect > mural_width / mural_height:
+			mural_height = mural_width / aspect
+		else:
+			mural_width = mural_height * aspect
+	quad.size = Vector2(mural_width, mural_height)
 	image.mesh = quad
 	image.position = pos
 	image.rotation.y = yaw
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.albedo_texture = load(path) as Texture2D
+	mat.albedo_texture = texture
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	image.material_override = mat
 	add_child(image)
 	return image
+
+
+func _add_wall_inscription(words: String, pos: Vector3, yaw: float) -> void:
+	var inscription := Label3D.new()
+	inscription.name = "Carved wall inscription"
+	inscription.text = words
+	inscription.font_size = 30
+	inscription.pixel_size = 0.004
+	inscription.modulate = Color(0.77, 0.64, 0.40)
+	inscription.outline_size = 5
+	inscription.outline_modulate = Color(0.10, 0.085, 0.065, 0.85)
+	inscription.position = pos
+	inscription.rotation.y = yaw
+	add_child(inscription)
 
 
 func _build_excavation_sites() -> void:
@@ -1171,7 +1229,14 @@ func _add_box(label: String, pos: Vector3, dimensions: Vector3, color: Color, so
 	var mesh := BoxMesh.new()
 	mesh.size = dimensions
 	mesh_instance.mesh = mesh
-	mesh_instance.material_override = _stone_material(color)
+	var material := _stone_material(color)
+	if label.contains("wall") or label.contains("floor") or label.contains("ceiling") or label.contains("passage") or label.contains("portal lintel"):
+		material.albedo_texture = SANDSTONE_TEXTURE
+		material.albedo_color = Color(0.78, 0.70, 0.57)
+		material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		material.uv1_scale = Vector3(maxf(dimensions.x / 3.0, 1.0), maxf(dimensions.y / 3.0, 1.0), maxf(dimensions.z / 3.0, 1.0))
+		material.roughness = 1.0
+	mesh_instance.material_override = material
 	holder.add_child(mesh_instance)
 	if solid:
 		var collision := CollisionShape3D.new()
@@ -1385,14 +1450,35 @@ func _build_scare_figure() -> void:
 	shadow_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	shadow_material.albedo_color = Color(0.018, 0.014, 0.026, 0.94)
 	shadow_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	for data in [[Vector3(0, 1.05, 0), Vector3(0.48, 1.25, 0.18)], [Vector3(0, 1.93, 0), Vector3(0.35, 0.38, 0.3)], [Vector3(-0.42, 0.9, 0), Vector3(0.18, 0.9, 0.16)], [Vector3(0.42, 0.9, 0), Vector3(0.18, 0.9, 0.16)]]:
-		var part := MeshInstance3D.new()
-		var mesh := BoxMesh.new()
-		mesh.size = data[1]
-		part.mesh = mesh
-		part.position = data[0]
-		part.material_override = shadow_material
-		_ghost.add_child(part)
+	var shroud := MeshInstance3D.new()
+	var shroud_mesh := CylinderMesh.new()
+	shroud_mesh.top_radius = 0.18
+	shroud_mesh.bottom_radius = 0.53
+	shroud_mesh.height = 1.65
+	shroud_mesh.radial_segments = 12
+	shroud.mesh = shroud_mesh
+	shroud.position.y = 0.95
+	shroud.material_override = shadow_material
+	_ghost.add_child(shroud)
+	var hood := MeshInstance3D.new()
+	var hood_mesh := SphereMesh.new()
+	hood_mesh.radius = 0.25
+	hood_mesh.height = 0.52
+	hood_mesh.radial_segments = 12
+	hood.mesh = hood_mesh
+	hood.position.y = 1.88
+	hood.material_override = shadow_material
+	_ghost.add_child(hood)
+	for side in [-1.0, 1.0]:
+		var sleeve := MeshInstance3D.new()
+		var sleeve_mesh := CapsuleMesh.new()
+		sleeve_mesh.radius = 0.10
+		sleeve_mesh.height = 1.08
+		sleeve.mesh = sleeve_mesh
+		sleeve.position = Vector3(side * 0.39, 0.95, 0)
+		sleeve.rotation.z = deg_to_rad(side * -18.0)
+		sleeve.material_override = shadow_material
+		_ghost.add_child(sleeve)
 	_scare_audio = AudioStreamPlayer.new()
 	_scare_audio.volume_db = -12.0
 	_scare_audio.stream = _make_scare_sound()

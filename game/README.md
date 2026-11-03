@@ -22,12 +22,16 @@ The default build is a compact first-person 3D temple. The sanctuary orb opens t
 
 Painted murals depict the Grail's ceremony, curse, deliberate separation, and final revelation. Fragment inspections pause the action and show their individual clues. A brief apparition appears once when the inner mural is examined. The original 2D game remains available from the main menu as **2D FALLBACK BUILD**.
 
+## Art direction
+The 3D rooms use an original aged-sandstone material, rounded stone piers, framed doorways, warm/cool chamber lighting, and light atmospheric fog. Four original fresco images tell the story visually: `murals/ritual_fresco.png`, `murals/curse_fresco.png`, `murals/division_fresco.png`, and `murals/reveal_fresco.png`. The reveal mural is hidden until restoration. The texture asset is `art_sandstone.png`.
+
 ## Files (who to hand off to)
 | File | What it is | Owner (per team doc) |
 |---|---|---|
 | `main.gd` | Builds the level, connects mechanics, win/lose | everyone |
 | `app.gd` + `main.tscn` | Main menu, briefing, pause, endings, scene lifecycle | shared |
-| `gameplay.tscn` | Gameplay scene instantiated after the briefing | shared |
+| `gameplay_3d.gd` + `gameplay_3d.tscn` | Default first-person 3D gameplay scene | shared |
+| `gameplay.tscn` | Original 2D gameplay fallback | shared |
 | `grail_emblem.gd`, `direction_cue.gd` | Procedural menu/end art and first-site pointer | shared |
 | `darkness.gdshader` + light code in `main.gd` (`_update_light`) | Mechanic 1: Flashlight | Hali |
 | `fragment_collection.gd` + integration in `main.gd` | Mechanic 2: Fragment collection + restoration | Jadin |
@@ -42,7 +46,5 @@ Painted murals depict the Grail's ceremony, curse, deliberate separation, and fi
 - **Digging/brushing:** E 3s per layer (2 layers per fragment site), then you must brush (R). Digging again while brushing is needed (0.4s grace) damages the fragment. Brushing when not needed just wastes time. Decoy sites hold only pottery.
 
 ## Remaining ideas
-- Real art/audio, collision walls, a bigger or randomized map
-- Expedition timer (the pitch says "before the expedition ends in failure")
-- More artifacts + inventory
-- Jeremiah's water-spring repair idea (currently a damaged fragment = instant loss, per Jadin's decision)
+- More optional relic variety and a longer expedition mode
+- The approved playtest rules remain authoritative: a damaged required fragment ends the expedition, with no repair action.
