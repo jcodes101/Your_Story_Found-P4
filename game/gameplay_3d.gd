@@ -8,6 +8,9 @@ const BRUSH_TIME := 1.5
 const DAMAGE_GRACE := 0.4
 const RESTORE_TIME := 3.0
 const MOVE_SPEED := 4.3
+const FLASHLIGHT_BASE_ENERGY := 1.75
+const FLASHLIGHT_BASE_RANGE := 12.5
+const FLASHLIGHT_BASE_ANGLE := 42.0
 const SANDSTONE_TEXTURE: Texture2D = preload("res://art_sandstone.png")
 const RITUAL_FRESCO: Texture2D = preload("res://murals/ritual_fresco.png")
 const CURSE_FRESCO: Texture2D = preload("res://murals/curse_fresco.png")
@@ -19,7 +22,7 @@ enum StoryStage { INTRODUCTION, DISCOVERY, SUSPICION, TWIST, RESTORATION }
 
 var state: int = State.EXPLORING
 var story_stage: int = StoryStage.INTRODUCTION
-var story_clues_seen := {"sanctuary": false, "curse": false, "division": false}
+var story_clues_seen := {"sanctuary": false, "gallery": false, "archive": false, "curse": false, "division": false}
 var story_clues: Array[Dictionary] = []
 var ending_text := ""
 var player: CharacterBody3D
@@ -121,11 +124,12 @@ func _build_environment() -> void:
 	environment.sky = Sky.new()
 	environment.sky.sky_material = ProceduralSkyMaterial.new()
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	environment.ambient_light_color = Color(0.20, 0.22, 0.23)
-	environment.ambient_light_energy = 0.55
+	environment.ambient_light_color = Color(0.10, 0.11, 0.14)
+	# The temple should fall close to black outside the handheld beam.
+	environment.ambient_light_energy = 0.035
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.27, 0.24, 0.20)
+	environment.fog_light_color = Color(0.08, 0.075, 0.07)
 	environment.fog_density = 0.006
 	environment.fog_sky_affect = 0.0
 	world_environment = WorldEnvironment.new()
@@ -134,23 +138,29 @@ func _build_environment() -> void:
 	key_light = DirectionalLight3D.new()
 	key_light.rotation_degrees = Vector3(-58.0, -26.0, 0.0)
 	key_light.light_color = Color(0.62, 0.70, 0.78)
-	key_light.light_energy = 0.32
+	key_light.light_energy = 0.015
 	add_child(key_light)
 
 
 func _build_architecture() -> void:
-	# Five legible chambers with broad, aligned thresholds and clear return routes.
+	# Seven legible chambers with broad, aligned thresholds and clear return routes.
 	_room(Vector2(0, -18), Vector2(14, 12), "Camp", {"north": 0.0, "east": 0.0})
-	_room(Vector2(14, -6), Vector2(12, 12), "Sanctuary", {"north": -5.0, "south": 0.0})
+	_room(Vector2(14, -6), Vector2(12, 12), "Sanctuary", {"north": -5.0, "south": 0.0, "east": 0.0})
+	_room(Vector2(28, -6), Vector2(12, 12), "Votive gallery", {"west": 0.0})
 	_room(Vector2(0, 7), Vector2(12, 12), "Shattered hall", {"east": 0.0, "west": 4.0})
-	_room(Vector2(-14, 18), Vector2(12, 18), "Dividing chamber", {"east": -7.0, "south": 0.0})
+	_room(Vector2(-14, 18), Vector2(12, 18), "Dividing chamber", {"east": -7.0, "west": 4.0, "south": 0.0})
+	_room(Vector2(-28, 22), Vector2(12, 12), "Scribe vault", {"east": 0.0})
 	_room(Vector2(-14, 36), Vector2(14, 14), "Restoration altar", {"north": 0.0})
 	_hall_z(9.0, -18.0, -12.0)
 	_hall_z(14.0, 0.0, 4.0)
 	# One wide, easy-to-read turn connects the sanctuary to Room 3.
 	_hall_x(6.0, 14.0, 7.0)
+	# Optional side gallery off the sanctuary rewards a detour with the Grail's history.
+	_hall_x(20.0, 26.0, -6.0)
 	# The hidden fissure is a short, deliberate crouch passage into Room 4.
 	_hall_x(-8.0, -6.0, 11.0)
+	# A second optional detour follows the scribe's evidence without blocking the main route.
+	_hall_x(-20.0, -22.0, 22.0)
 	_hall_z(-14.0, 27.0, 29.0)
 	# Low rubble marks the fissure ceiling. Crouch (C) is required to pass safely.
 	_add_box("Fissure low lintel", Vector3(-7.0, 1.31, 11.0), Vector3(2.2, 0.26, 3.45), Color(0.30, 0.27, 0.24))
@@ -158,10 +168,13 @@ func _build_architecture() -> void:
 	_sanctuary_door = StaticBody3D.new()
 	_sanctuary_door.name = "Sanctuary sealed door"
 	_sanctuary_door.position = Vector3(6.0, 1.65, 7.0)
+	_sanctuary_door.collision_layer = 1
+	_sanctuary_door.collision_mask = 1
 	add_child(_sanctuary_door)
 	var door_visual := MeshInstance3D.new()
 	var door_mesh := BoxMesh.new()
-	door_mesh.size = Vector3(0.7, 3.3, 3.35)
+	# Overlap the jambs slightly so the player cannot squeeze around the closed gate.
+	door_mesh.size = Vector3(0.9, 3.5, 3.95)
 	door_visual.mesh = door_mesh
 	var door_material := _stone_material(Color(0.30, 0.31, 0.30))
 	door_material.emission_enabled = true
@@ -173,6 +186,7 @@ func _build_architecture() -> void:
 	var door_shape := BoxShape3D.new()
 	door_shape.size = door_mesh.size
 	_sanctuary_door_collision.shape = door_shape
+	_sanctuary_door_collision.disabled = false
 	_sanctuary_door.add_child(_sanctuary_door_collision)
 	# Hidden passage seal, disguised as a cracked wall slab until investigated.
 	_crack_seal = StaticBody3D.new()
@@ -196,11 +210,11 @@ func _build_architecture() -> void:
 	crack_material.emission_enabled = true
 	crack_material.emission = Color(0.25, 0.65, 0.85)
 	crack_material.emission_energy_multiplier = 0.65
-	_add_point_light(Vector3(0, 3, -18), Color(1.0, 0.70, 0.36), 1.0, 7.0)
-	_add_point_light(Vector3(14, 3, -6), Color(0.88, 0.67, 0.36), 1.0, 7.0)
-	_add_point_light(Vector3(0, 3, 7), Color(0.52, 0.68, 0.80), 0.6, 6.0)
-	_add_point_light(Vector3(-14, 3, 18), Color(0.48, 0.66, 0.83), 0.55, 6.0)
-	_add_point_light(Vector3(-14, 3, 36), Color(0.45, 0.68, 0.86), 0.35, 6.0)
+	_add_point_light(Vector3(0, 3, -18), Color(1.0, 0.70, 0.36), 0.025, 3.5)
+	_add_point_light(Vector3(14, 3, -6), Color(0.88, 0.67, 0.36), 0.025, 3.5)
+	_add_point_light(Vector3(0, 3, 7), Color(0.52, 0.68, 0.80), 0.018, 3.0)
+	_add_point_light(Vector3(-14, 3, 18), Color(0.48, 0.66, 0.83), 0.016, 3.0)
+	_add_point_light(Vector3(-14, 3, 36), Color(0.45, 0.68, 0.86), 0.012, 2.5)
 
 
 func _room(center: Vector2, size: Vector2, label: String, openings: Dictionary) -> void:
@@ -283,6 +297,30 @@ func _build_story_clues() -> void:
 	_division_mural = _add_mural("Deliberate separation mural", "res://murals/division_fresco.png", Vector3(-14, 2.25, 26.5), PI)
 	_revealed_mural = _add_mural("Completed story mural", "res://murals/reveal_fresco.png", Vector3(-14, 2.3, 42.55), PI)
 	_revealed_mural.visible = false
+	# The side gallery shows the vessel first as a communal source of protection.
+	_add_mural("Votive gathering fresco", "res://murals/votive_gallery_fresco.png", Vector3(33.55, 2.2, -6.0), -PI / 2.0)
+	# The vault reuses the curse fresco as a damaged field record: the last crew
+	# opened the seal and fled, making their failure part of the player's search.
+	_add_mural("Last expedition fresco", "res://murals/scribe_vault_fresco.png", Vector3(-28.0, 2.2, 16.45), 0.0)
+	# Offerings, kneeling stones, and a broken protective figure make the gallery
+	# read as a place where the Grail once served its people.
+	for offering_data in [[24.0, -10.0], [31.5, -10.0], [24.0, -2.0], [31.5, -2.0]]:
+		var offering_x: float = offering_data[0]
+		var offering_z: float = offering_data[1]
+		_add_cylinder("Votive offering bowl", Vector3(offering_x, 0.22, offering_z), 0.48, 0.28, Color(0.47, 0.39, 0.28), false)
+		_add_cylinder("Offering within bowl", Vector3(offering_x, 0.38, offering_z), 0.19, 0.035, Color(0.64, 0.49, 0.26), false)
+	_add_box("Broken guardian statue", Vector3(24.2, 0.53, -6.0), Vector3(0.85, 1.0, 0.7), Color(0.38, 0.34, 0.29), false, Vector3(0, 0, 18))
+	_add_sphere("Guardian statue head", Vector3(24.8, 0.38, -6.0), 0.34, Color(0.40, 0.35, 0.29), false)
+	# The archive contains a hastily abandoned survey table and tools aimed back
+	# toward the altar, implying the previous crew reached the same conclusion.
+	_add_box("Scribe survey table", Vector3(-31.3, 0.62, 22.0), Vector3(2.2, 0.16, 1.35), Color(0.34, 0.27, 0.20), false)
+	_add_box("Unrolled temple map", Vector3(-31.3, 0.72, 22.0), Vector3(1.35, 0.035, 0.88), Color(0.62, 0.51, 0.36), false, Vector3(0, 0, -8))
+	_add_box("Snapped survey rod", Vector3(-26.2, 0.10, 23.7), Vector3(0.08, 0.08, 1.45), Color(0.43, 0.30, 0.18), false, Vector3(0, 0, 27))
+	_add_box("Dropped field brush", Vector3(-25.2, 0.10, 21.1), Vector3(0.12, 0.09, 0.86), Color(0.52, 0.37, 0.22), false, Vector3(0, 0, -31))
+	_add_wall_inscription("THE CUP KEPT THE HARVEST\nUNTIL THE LIGHT TURNED", Vector3(28.0, 1.55, -11.55), 0.0)
+	_add_wall_inscription("WE OPENED THE SEAL\nTHEN HEARD THEM BELOW", Vector3(-22.45, 1.55, 22.0), -PI / 2.0)
+	_add_point_light(Vector3(21.9, 1.25, -6.0), Color(0.80, 0.56, 0.28), 0.06, 3.2)
+	_add_point_light(Vector3(-21.9, 1.25, 22.0), Color(0.36, 0.66, 0.79), 0.06, 3.2)
 	_mural_light = _add_point_light(Vector3(-14, 3.2, 41.8), Color(0.43, 0.71, 0.90), 0.0, 8.0)
 	# The sanctuary's orb is an actual door control, framed as a carved mechanism.
 	_add_cylinder("Orb mechanism plinth", Vector3(14, 0.18, -1.7), 0.62, 0.36, Color(0.43, 0.36, 0.27), false)
@@ -304,8 +342,8 @@ func _build_story_clues() -> void:
 	_sanctuary_orb.add_child(orb_visual)
 	_sanctuary_orb_light = OmniLight3D.new()
 	_sanctuary_orb_light.light_color = Color(1.0, 0.58, 0.24)
-	_sanctuary_orb_light.light_energy = 0.65
-	_sanctuary_orb_light.omni_range = 3.5
+	_sanctuary_orb_light.light_energy = 0.22
+	_sanctuary_orb_light.omni_range = 2.4
 	_sanctuary_orb.add_child(_sanctuary_orb_light)
 	for mark_data in [[10.8, 1.2], [11.5, 2.0], [16.5, 1.2], [17.2, 2.0]]:
 		var mark_x: float = mark_data[0]
@@ -320,7 +358,7 @@ func _build_story_clues() -> void:
 			mark_material.emission_energy_multiplier = 0.0
 			_sanctuary_sigil_materials.append(mark_material)
 		_sanctuary_sigil_lights.append(_add_point_light(Vector3(mark_x, mark_y, -0.8), Color(0.31, 0.75, 0.82), 0.0, 2.0))
-	_division_mural_light = _add_point_light(Vector3(-14, 3.0, 25.8), Color(0.57, 0.77, 0.84), 0.16, 5.5)
+	_division_mural_light = _add_point_light(Vector3(-14, 3.0, 25.8), Color(0.57, 0.77, 0.84), 0.025, 3.5)
 	_door_audio = AudioStreamPlayer.new()
 	_door_audio.volume_db = -10.0
 	_door_audio.stream = _make_stone_sound()
@@ -338,6 +376,8 @@ func _build_story_clues() -> void:
 		var angle := float(i) * PI / 2.0
 		_add_box("Separated Grail stone", Vector3(-14.0 + cos(angle) * 2.4, 0.18, 18.0 + sin(angle) * 2.4), Vector3(0.78, 0.34, 0.44), Color(0.39, 0.37, 0.32), false, Vector3(0, rad_to_deg(angle), 16.0))
 	story_clues = [
+		{"id":"gallery", "node":get_node_or_null("Votive gathering fresco"), "text":"They carried its light together. The cup was their shelter."},
+		{"id":"archive", "node":get_node_or_null("Last expedition fresco"), "text":"The last crew opened the seal. Their tools point back toward the altar."},
 		{"id":"curse", "node":_curse_mural, "text":"The vessel's light became a wound."},
 		{"id":"division", "node":_division_mural, "text":"They broke it to protect the living."}
 	]
@@ -363,10 +403,10 @@ func _build_story_clues() -> void:
 	_add_box("Broken emblem left", Vector3(-0.55, 2.5, -23.15), Vector3(0.55, 0.5, 0.1), Color(0.75, 0.59, 0.31), false, Vector3(0, 0, -18))
 	_add_box("Broken emblem right", Vector3(0.55, 2.1, -23.15), Vector3(0.55, 0.5, 0.1), Color(0.75, 0.59, 0.31), false, Vector3(0, 0, 18))
 	# Short wall inscriptions support the pictures without explaining the whole mystery.
-	_add_wall_inscription("FOUR PIECES. ONE WARNING.", Vector3(-6.55, 2.65, -18.0), PI / 2.0)
-	_add_wall_inscription("A VESSEL HELD IN TRUST.", Vector3(14.0, 2.25, -11.55), 0.0)
-	_add_wall_inscription("ITS LIGHT BECAME A WOUND.", Vector3(-5.55, 2.7, 4.6), PI / 2.0)
-	_add_wall_inscription("DIVIDED TO SHELTER THE LIVING.", Vector3(-8.48, 2.25, 18.0), -PI / 2.0)
+	_add_wall_inscription("THE LAST CREW FLED\nLEAVE THE CUP BELOW", Vector3(-6.55, 2.2, -18.0), PI / 2.0)
+	_add_wall_inscription("SEAL THE VESSEL\nKEEP ITS LIGHT BURIED", Vector3(14.0, 2.25, -11.55), 0.0)
+	_add_wall_inscription("THE LIGHT BECAME A WOUND\nBEAR NO RELIC", Vector3(-5.55, 2.7, 4.6), PI / 2.0)
+	_add_wall_inscription("WE BROKE IT TO SAVE YOU\nLET THE FOUR SLEEP", Vector3(-8.48, 2.25, 18.0), -PI / 2.0)
 
 
 func _add_mural(label: String, path: String, pos: Vector3, yaw: float) -> MeshInstance3D:
@@ -387,7 +427,7 @@ func _add_mural(label: String, path: String, pos: Vector3, yaw: float) -> MeshIn
 	image.position = pos
 	image.rotation.y = yaw
 	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	mat.albedo_texture = texture
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	image.material_override = mat
@@ -397,13 +437,14 @@ func _add_mural(label: String, path: String, pos: Vector3, yaw: float) -> MeshIn
 
 func _add_wall_inscription(words: String, pos: Vector3, yaw: float) -> void:
 	var inscription := Label3D.new()
-	inscription.name = "Carved wall inscription"
+	inscription.name = "Faded warning carved into stone"
 	inscription.text = words
-	inscription.font_size = 30
-	inscription.pixel_size = 0.004
-	inscription.modulate = Color(0.77, 0.64, 0.40)
-	inscription.outline_size = 5
-	inscription.outline_modulate = Color(0.10, 0.085, 0.065, 0.85)
+	inscription.font_size = 52
+	inscription.pixel_size = 0.005
+	inscription.modulate = Color(0.53, 0.39, 0.24, 0.88)
+	inscription.outline_size = 2
+	inscription.outline_modulate = Color(0.12, 0.085, 0.055, 0.78)
+	inscription.shaded = true
 	inscription.position = pos
 	inscription.rotation.y = yaw
 	add_child(inscription)
@@ -419,8 +460,14 @@ func _build_excavation_sites() -> void:
 		root.position = positions[i]
 		add_child(root)
 		var mound := _add_cylinder("Soil mound", Vector3(0, 0.06, 0), 0.74, 0.14, Color(0.28, 0.20, 0.13), false, Vector3.ZERO, root)
-		_add_box("Burial mark", Vector3(0, 0.15, 0), Vector3(0.75, 0.035, 0.06), Color(0.85, 0.68, 0.33), false, Vector3(0, 0, 45), root)
-		_add_box("Burial mark cross", Vector3(0, 0.16, 0), Vector3(0.75, 0.035, 0.06), Color(0.85, 0.68, 0.33), false, Vector3(0, 90, 45), root)
+		var marker_a := _add_box("Burial mark", Vector3(0, 0.15, 0), Vector3(0.75, 0.035, 0.06), Color(0.85, 0.68, 0.33), false, Vector3(0, 0, 45), root)
+		var marker_b := _add_box("Burial mark cross", Vector3(0, 0.16, 0), Vector3(0.75, 0.035, 0.06), Color(0.85, 0.68, 0.33), false, Vector3(0, 90, 45), root)
+		var marker_material_a := marker_a.get_node("Visual").material_override as StandardMaterial3D
+		var marker_material_b := marker_b.get_node("Visual").material_override as StandardMaterial3D
+		for marker_material in [marker_material_a, marker_material_b]:
+			marker_material.emission_enabled = true
+			marker_material.emission = Color(0.82, 0.45, 0.12)
+			marker_material.emission_energy_multiplier = 0.0
 		var fragment := _make_fragment_mesh(fragment_colors[i], i + 1)
 		fragment.position = Vector3(0, 0.6, 0)
 		fragment.visible = false
@@ -429,22 +476,38 @@ func _build_excavation_sites() -> void:
 		root.add_child(dirt_particles)
 		var record := {"id": i + 1, "visual": fragment, "inscription": inscriptions[i], "color": fragment_colors[i], "collected": false, "status": "undiscovered"}
 		fragment_records.append(record)
-		sites.append({"id": i + 1, "node": root, "fragment": fragment, "mound": mound, "layers": 2, "state": "buried", "damage": 0.0, "pulse": 0.0, "inscription": inscriptions[i], "particles": dirt_particles})
+		sites.append({"id": i + 1, "node": root, "fragment": fragment, "mound": mound, "markers": [marker_a, marker_b], "layers": 2, "state": "buried", "damage": 0.0, "pulse": 0.0, "inscription": inscriptions[i], "particles": dirt_particles})
 
 
 func _build_artifacts() -> void:
 	_add_artifact("Sun Charm", "This relic brightens the path. Its weight feels strange.", Vector3(18.2, 0.25, -4.0), Color(0.91, 0.69, 0.32), 1.35, 1.0, false)
+	artifacts[-1]["beam_range"] = 1.62
+	artifacts[-1]["beam_angle"] = 1.20
+	_add_artifact("Surveyor's Lens", "Old marks answer its light.", Vector3(3.6, 0.25, -19.4), Color(0.44, 0.75, 0.78), 1.0, 1.0, false)
+	artifacts[-1]["marking_power"] = 1.0
 	_add_artifact("Pilgrim Sandals", "Worn leather, threaded with gold.", Vector3(10.2, 0.25, -4.0), Color(0.81, 0.61, 0.29), 1.0, 1.3, false)
 	_add_artifact("Obsidian Idol", "The stone drinks the light around it.", Vector3(3.9, 0.25, 5.1), Color(0.47, 0.36, 0.67), 0.58, 0.82, true)
 	_add_artifact("Lead Anklet", "Tiny footprints circle its cold surface.", Vector3(-4.0, 0.25, 9.6), Color(0.53, 0.42, 0.63), 1.0, 0.58, true)
 	_add_artifact("Gilded Mask", "The face is warm. Something stirs within.", Vector3(3.3, 0.25, 9.5), Color(0.86, 0.68, 0.29), 1.0, 0.55, true)
+	_add_artifact("Pilgrim Prism", "The beam reaches farther through its glass.", Vector3(26.0, 0.25, -6.0), Color(0.92, 0.63, 0.29), 1.25, 1.0, false)
+	artifacts[-1]["beam_range"] = 1.55
+	artifacts[-1]["beam_angle"] = 1.25
+	var pilgrim_prism_glow := (artifacts[-1]["node"] as Node3D).get_child(1) as OmniLight3D
+	pilgrim_prism_glow.light_energy = 0.42
+	pilgrim_prism_glow.omni_range = 3.2
+	_add_artifact("Scribe's Lens", "Buried marks answer from farther away.", Vector3(-25.0, 0.25, 23.7), Color(0.42, 0.79, 0.88), 1.0, 1.0, false)
+	artifacts[-1]["marking_power"] = 1.65
+	artifacts[-1]["beam_range"] = 1.18
+	var scribe_lens_glow := (artifacts[-1]["node"] as Node3D).get_child(1) as OmniLight3D
+	scribe_lens_glow.light_energy = 0.42
+	scribe_lens_glow.omni_range = 3.2
 
 
 func _build_restoration_and_final_chamber() -> void:
 	_add_cylinder("Restoration dais", Vector3(-14, 0.18, 36.0), 2.4, 0.36, Color(0.40, 0.34, 0.27), false)
 	_add_cylinder("Dais inlay", Vector3(-14, 0.39, 36.0), 1.65, 0.08, Color(0.79, 0.63, 0.34), false)
 	_add_cylinder("Empty grail socket", Vector3(-14, 0.52, 36.0), 0.62, 0.18, Color(0.21, 0.24, 0.24), false)
-	_add_point_light(Vector3(-14, 2.4, 36.0), Color(0.44, 0.70, 0.88), 0.3, 4.0)
+	_add_point_light(Vector3(-14, 2.4, 36.0), Color(0.44, 0.70, 0.88), 0.025, 3.0)
 	_restored_grail = _make_grail_mesh()
 	_restored_grail.position = Vector3(-14, 0.7, 36.0)
 	_restored_grail.scale = Vector3.ZERO
@@ -469,9 +532,9 @@ func _build_restoration_and_final_chamber() -> void:
 func _build_player() -> void:
 	player = CharacterBody3D.new()
 	player.name = "Explorer"
-	player.position = Vector3(0, 0.08, -20.3)
-	# Face from the open entrance into camp and toward the first marked site.
-	player.rotation.y = PI
+	player.position = Vector3(-4.0, 0.08, -18.0)
+	# Start close to the faded camp warning, facing it so the first hint is seen naturally.
+	player.rotation.y = PI / 2.0
 	add_child(player)
 	_player_collision = CollisionShape3D.new()
 	_player_capsule = CapsuleShape3D.new()
@@ -487,12 +550,25 @@ func _build_player() -> void:
 	flashlight = SpotLight3D.new()
 	flashlight.position = Vector3(0, 0, -0.15)
 	flashlight.light_color = Color(0.86, 0.91, 1.0)
-	flashlight.light_energy = 4.0
-	flashlight.spot_range = 22.0
-	flashlight.spot_angle = 52.0
+	flashlight.light_energy = FLASHLIGHT_BASE_ENERGY
+	flashlight.spot_range = FLASHLIGHT_BASE_RANGE
+	flashlight.spot_angle = FLASHLIGHT_BASE_ANGLE
 	flashlight.shadow_enabled = true
 	camera.add_child(flashlight)
 	_build_trowel()
+
+
+func _update_flashlight_from_relic() -> void:
+	var light_scale := 1.0
+	var range_scale := 1.0
+	var angle_scale := 1.0
+	if not carried.is_empty() and carried.get("active", true):
+		light_scale = float(carried.get("light", 1.0))
+		range_scale = float(carried.get("beam_range", 1.0))
+		angle_scale = float(carried.get("beam_angle", 1.0))
+	flashlight.light_energy = FLASHLIGHT_BASE_ENERGY * light_scale
+	flashlight.spot_range = FLASHLIGHT_BASE_RANGE * range_scale
+	flashlight.spot_angle = minf(62.0, FLASHLIGHT_BASE_ANGLE * angle_scale)
 
 
 func _build_hud() -> void:
@@ -637,9 +713,15 @@ func _process(delta: float) -> void:
 	for site in sites:
 		if site["state"] == "buried":
 			site["pulse"] = fposmod(site["pulse"] + delta, TAU)
-			var mark: MeshInstance3D = site["node"].get_node("Burial mark/Visual")
-			var material: StandardMaterial3D = mark.material_override
-			material.emission_energy_multiplier = 0.25 + 0.3 * (0.5 + 0.5 * sin(site["pulse"]))
+			var mark_power := 0.0
+			if not carried.is_empty() and carried.get("active", true):
+				mark_power = float(carried.get("marking_power", 0.0))
+			var pulse := 0.5 + 0.5 * sin(site["pulse"])
+			for marker in site["markers"]:
+				var visual: MeshInstance3D = marker.get_node("Visual")
+				var material: StandardMaterial3D = visual.material_override
+				# The marks need the beam to show; a lens relic makes them pulse at range.
+				material.emission_energy_multiplier = 0.008 + mark_power * (0.16 + pulse * 0.42)
 	for artifact in artifacts:
 		var node: Node3D = artifact["node"]
 		if artifact != carried:
@@ -697,7 +779,7 @@ func _physics_process(delta: float) -> void:
 				carried["active"] = true
 				carried["speed"] = carried["base_speed"]
 				carried["light"] = carried["base_light"]
-				flashlight.light_energy = 4.0 * float(carried["light"])
+				_update_flashlight_from_relic()
 				_show_message("The relic slows your steps.", 2.5, true)
 
 
@@ -825,7 +907,7 @@ func _collect_fragment(site: Dictionary) -> void:
 	scar_material.emission_enabled = true
 	scar_material.emission = Color(0.30, 0.68, 0.88)
 	scar_material.emission_energy_multiplier = 0.6 + float(fragments + 1) * 0.3
-	_energy_scar_light.light_energy = 0.45 + float(fragments + 1) * 0.25
+	_energy_scar_light.light_energy = 0.18 + float(fragments + 1) * 0.10
 	_show_message("The fragment is exposed. F to collect.", 2.2)
 	site["node"].get_node("Burial mark").visible = false
 	site["node"].get_node("Burial mark cross").visible = false
@@ -854,10 +936,10 @@ func _pick_up_fragment(site: Dictionary) -> void:
 	for record in fragment_records:
 		if record["collected"]:
 			fragments += 1
-	_division_mural_light.light_energy = 0.16 + float(fragments) * 0.22
+	_division_mural_light.light_energy = 0.035 + float(fragments) * 0.04
 	var scar_material := (_energy_scar.get_node("Visual") as MeshInstance3D).material_override as StandardMaterial3D
 	scar_material.emission_energy_multiplier = 0.45 + float(fragments) * 0.34
-	_energy_scar_light.light_energy = 0.3 + float(fragments) * 0.3
+	_energy_scar_light.light_energy = 0.14 + float(fragments) * 0.12
 	fragment_label.text = "FRAGMENTS  %d / 4" % fragments
 	_refresh_journal()
 	_show_fragment_popup(site)
@@ -938,8 +1020,9 @@ func _restore_grail() -> void:
 	_dark_pulse.visible = false
 	flashlight.light_energy = 1.5
 	key_light.light_color = Color(0.62, 0.70, 0.78)
-	key_light.light_energy = 0.24
-	world_environment.environment.ambient_light_color = Color(0.30, 0.37, 0.36)
+	key_light.light_energy = 0.015
+	world_environment.environment.ambient_light_color = Color(0.10, 0.11, 0.14)
+	world_environment.environment.ambient_light_energy = 0.035
 	state = State.WON
 	_ended = true
 	ending_text = "The Grail is whole. The expedition succeeds."
@@ -968,10 +1051,12 @@ func _interact() -> void:
 			var clue_id: String = clue["id"]
 			if not story_clues_seen[clue_id]:
 				story_clues_seen[clue_id] = true
-				if clue_id == "curse":
-					story_stage = StoryStage.SUSPICION
+				if clue_id == "curse" or clue_id == "archive":
+					story_stage = maxi(story_stage, StoryStage.SUSPICION)
 				elif clue_id == "division":
-					story_stage = StoryStage.TWIST
+					story_stage = maxi(story_stage, StoryStage.TWIST)
+				elif clue_id == "gallery":
+					story_stage = maxi(story_stage, StoryStage.DISCOVERY)
 			_show_message(clue["text"], 3.4)
 			if clue_id == "division":
 				_trigger_jump_scare()
@@ -984,7 +1069,7 @@ func _interact() -> void:
 		carried["active"] = not carried["delayed"]
 		carried["carry_time"] = 0.0
 		carried = {}
-		flashlight.light_energy = 4.0
+		_update_flashlight_from_relic()
 		_show_message("Relic dropped.", 1.5)
 		return
 	var artifact := _nearest_artifact()
@@ -993,15 +1078,16 @@ func _interact() -> void:
 	carried = artifact
 	artifact["node"].visible = false
 	artifact["carry_time"] = 0.0
-	if artifact["light"] > 1.0:
-		flashlight.light_energy = 5.0
-		_show_message("THE CHARM WARMS — YOUR LIGHT REACHES FARTHER", 2.7)
+	_update_flashlight_from_relic()
+	if float(artifact.get("marking_power", 0.0)) > 0.0:
+		_show_message("THE OLD MARKS ANSWER THE LENS.", 2.7)
+	elif float(artifact.get("beam_range", 1.0)) > 1.0:
+		_show_message("THE BEAM WIDENS AND REACHES FARTHER.", 2.7)
 	elif artifact["speed"] > 1.0:
 		_show_message("THE THREAD LIGHTENS YOUR STEP", 2.7)
 	elif artifact["delayed"]:
 		_show_message("THE MASK IS WARM. SOMETHING STIRS WITHIN.", 2.7)
 	else:
-		flashlight.light_energy = 2.3
 		_show_message("THE RELIC DRAWS THE LIGHT INWARD", 2.7, true)
 
 
@@ -1012,18 +1098,19 @@ func _activate_sanctuary_mechanism() -> void:
 	story_clues_seen["sanctuary"] = true
 	story_stage = StoryStage.DISCOVERY
 	_show_message("The vessel mural stirs. A stone door answers below.", 2.8)
-	_sanctuary_orb_light.light_energy = 2.6
+	_sanctuary_orb_light.light_energy = 0.75
 	var orb_visual := _sanctuary_orb.get_child(0) as MeshInstance3D
 	var orb_material := orb_visual.material_override as StandardMaterial3D
 	orb_material.emission_energy_multiplier = 2.8
 	_door_audio.play()
 	for sigil_light in _sanctuary_sigil_lights:
-		sigil_light.light_energy = 1.4
+		sigil_light.light_energy = 0.32
 	for sigil_material in _sanctuary_sigil_materials:
 		sigil_material.emission_energy_multiplier = 1.65
 	for i in 6:
-		key_light.light_energy = 0.24 if i % 2 == 0 else 0.42
+		key_light.light_energy = 0.07 if i % 2 == 0 else 0.17
 		await get_tree().create_timer(0.09).timeout
+	key_light.light_energy = 0.015
 	var door_tween := create_tween()
 	door_tween.tween_property(_sanctuary_door, "position:y", 5.0, 1.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 	await door_tween.finished
@@ -1037,7 +1124,7 @@ func _open_cracked_passage() -> void:
 	_crack_open = true
 	story_clues_seen["curse"] = true
 	story_stage = StoryStage.SUSPICION
-	_crack_light.light_energy = 1.55
+	_crack_light.light_energy = 0.52
 	_door_audio.play()
 	_show_message("The crack widens. C to crouch through.", 2.6, true)
 	var seal_tween := create_tween()
@@ -1104,7 +1191,11 @@ func _update_hud() -> void:
 		hud_label.text = "RETURN TO THE RESTORATION ALTAR"
 		prompt_label.text = "Hold G to restore the Grail." if _near_plinth() else ""
 	else:
-		if player.global_position.z < -12.0 and player.global_position.x < 7.0:
+		if player.global_position.x > 22.0 and player.global_position.z < 0.0:
+			hud_label.text = "THE VOTIVE GALLERY"
+		elif player.global_position.x < -22.0 and player.global_position.z < 29.0:
+			hud_label.text = "THE SCRIBE VAULT"
+		elif player.global_position.z < -12.0 and player.global_position.x < 7.0:
 			hud_label.text = "THE ABANDONED EXPEDITION"
 		elif player.global_position.x > 7.0:
 			hud_label.text = "THE GRAIL SANCTUARY"
@@ -1124,13 +1215,19 @@ func _update_hud() -> void:
 		elif not site.is_empty() and site["state"] == "damaged":
 			prompt_label.text = "FRAGMENT SHATTERED"
 		elif not _door_open and _distance_xz(player.global_position, _sanctuary_orb.global_position) < 2.2:
-			prompt_label.text = "F  •  Activate door mechanism"
+			prompt_label.text = "F  •  Activate sealed door"
+		elif not _door_open and _distance_xz(player.global_position, Vector3(6.0, 0.0, 7.0)) < 2.4:
+			prompt_label.text = "SEALED  •  Activate the sanctuary orb"
 		elif _door_open and not _crack_open and _distance_xz(player.global_position, Vector3(-5.8, 0.0, 11.0)) < 2.8:
 			prompt_label.text = "F  •  Investigate the glowing crack"
 		elif not story_clues_seen["curse"] and _distance_xz(player.global_position, _curse_mural.global_position) < 4.0:
 			prompt_label.text = "F  •  Examine the damaged mural"
 		elif not story_clues_seen["division"] and _distance_xz(player.global_position, _division_mural.global_position) < 4.0:
 			prompt_label.text = "F  •  Examine the broken mural"
+		elif not story_clues_seen["gallery"] and _distance_xz(player.global_position, Vector3(33.55, 0.0, -6.0)) < 4.0:
+			prompt_label.text = "F  •  Examine the votive fresco"
+		elif not story_clues_seen["archive"] and _distance_xz(player.global_position, Vector3(-28.0, 0.0, 16.45)) < 4.0:
+			prompt_label.text = "F  •  Examine the expedition record"
 		elif _crack_open and _distance_xz(player.global_position, Vector3(-7.0, 0.0, 11.0)) < 3.0 and not _crouched:
 			prompt_label.text = "C  •  Crouch through the fissure"
 		elif not _nearest_artifact().is_empty() and carried.is_empty():
@@ -1320,8 +1417,8 @@ func _add_artifact(item_name: String, description: String, pos: Vector3, tint: C
 	root.add_child(mesh_instance)
 	var light := OmniLight3D.new()
 	light.light_color = tint
-	light.light_energy = 0.38
-	light.omni_range = 2.8
+	light.light_energy = 0.12
+	light.omni_range = 1.8
 	root.add_child(light)
 	artifacts.append({"name": item_name, "description": description, "node": root, "light": light_mult, "speed": speed_mult, "base_light": light_mult, "base_speed": speed_mult, "delayed": delayed, "active": not delayed, "carry_time": 0.0, "phase": randf() * TAU})
 
@@ -1364,8 +1461,8 @@ func _make_fragment_mesh(tint: Color, fragment_id: int) -> Node3D:
 	var light := OmniLight3D.new()
 	light.position.y = 0.3
 	light.light_color = tint
-	light.light_energy = 0.8
-	light.omni_range = 3.0
+	light.light_energy = 0.30
+	light.omni_range = 2.0
 	root.add_child(light)
 	return root
 
